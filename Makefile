@@ -1,7 +1,8 @@
-all: exe1 exe2 
+all: exe1 exe2 exe3
 
 exe1: exe_generate_random exe_check 
 exe2: exe_gemm_base exe_gemm_base_1 exe_gemm_base_2 exe_gemm_base_3
+exe3: exe_gemm_4
 
 exe_generate_random: generate_random.cpp
 	g++ -O3 -g generate_random.cpp -o exe_generate_random
@@ -15,6 +16,8 @@ exe_gemm_base_2: gemm_base_2.cpp
 	g++ -O3 -g gemm_base_2.cpp -o exe_gemm_base_2 -fopenmp
 exe_gemm_base_3: gemm_base_3.cpp
 	g++ -O3 -g gemm_base_3.cpp -o exe_gemm_base_3 -fopenmp -mavx2
+exe_gemm_4: gemm_base_4.cpp
+	g++ -O3 -g gemm_base_4.cpp -o exe_gemm_4 -mavx2
 
 clean:
 	rm -rf exe_*
