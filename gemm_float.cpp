@@ -36,7 +36,7 @@ void gemm_base_vec(float* a, float* b, float* c, int m, int n, int l){
 	//n = 24;
 	//int k = l;
 
-	#pragma omp parallel for num_threads(10)
+	//#pragma omp parallel for num_threads(10)
 	for(int s_j = 0; s_j < n; s_j+=24){
 		for(int s_i = 0; s_i < m; s_i+=4){
 			__m256 v0 = _mm256_set1_ps(0.0);
@@ -52,9 +52,9 @@ void gemm_base_vec(float* a, float* b, float* c, int m, int n, int l){
 			__m256 v10 = v0; 
 			__m256 v11 = v0; 
 			for(int kk = 0; kk < l; kk++){
-				__m256 v12 = _mm256_loadu_ps(&b[kk*n+s_j + 0]);
-				__m256 v13 = _mm256_loadu_ps(&b[kk*n+s_j + 8]);
-				__m256 v14 = _mm256_loadu_ps(&b[kk*n+s_j + 16]);
+				__m256 v12 = _mm256_load_ps(&b[kk*n+s_j + 0]);
+				__m256 v13 = _mm256_load_ps(&b[kk*n+s_j + 8]);
+				__m256 v14 = _mm256_load_ps(&b[kk*n+s_j + 16]);
 
 				__m256 v15 = _mm256_set1_ps(a[(s_i+0)*l+kk]);
 				v0 = _mm256_add_ps(v0, _mm256_mul_ps(v15, v12));
@@ -76,21 +76,21 @@ void gemm_base_vec(float* a, float* b, float* c, int m, int n, int l){
 				v10 = _mm256_add_ps(v10, _mm256_mul_ps(v15, v13));
 				v11 = _mm256_add_ps(v11, _mm256_mul_ps(v15, v14));
 			}
-			_mm256_storeu_ps(&c[(s_i+0)*n+s_j+0], v0);
-			_mm256_storeu_ps(&c[(s_i+0)*n+s_j+8], v1);
-			_mm256_storeu_ps(&c[(s_i+0)*n+s_j+16], v2);
+			_mm256_store_ps(&c[(s_i+0)*n+s_j+0], v0);
+			_mm256_store_ps(&c[(s_i+0)*n+s_j+8], v1);
+			_mm256_store_ps(&c[(s_i+0)*n+s_j+16], v2);
 
-			_mm256_storeu_ps(&c[(s_i+1)*n+s_j+0], v3);
-			_mm256_storeu_ps(&c[(s_i+1)*n+s_j+8], v4);
-			_mm256_storeu_ps(&c[(s_i+1)*n+s_j+16], v5);
+			_mm256_store_ps(&c[(s_i+1)*n+s_j+0], v3);
+			_mm256_store_ps(&c[(s_i+1)*n+s_j+8], v4);
+			_mm256_store_ps(&c[(s_i+1)*n+s_j+16], v5);
 
-			_mm256_storeu_ps(&c[(s_i+2)*n+s_j+0], v6);
-			_mm256_storeu_ps(&c[(s_i+2)*n+s_j+8], v7);
-			_mm256_storeu_ps(&c[(s_i+2)*n+s_j+16], v8);
+			_mm256_store_ps(&c[(s_i+2)*n+s_j+0], v6);
+			_mm256_store_ps(&c[(s_i+2)*n+s_j+8], v7);
+			_mm256_store_ps(&c[(s_i+2)*n+s_j+16], v8);
 
-			_mm256_storeu_ps(&c[(s_i+3)*n+s_j+0], v9);
-			_mm256_storeu_ps(&c[(s_i+3)*n+s_j+8], v10);
-			_mm256_storeu_ps(&c[(s_i+3)*n+s_j+16], v11);
+			_mm256_store_ps(&c[(s_i+3)*n+s_j+0], v9);
+			_mm256_store_ps(&c[(s_i+3)*n+s_j+8], v10);
+			_mm256_store_ps(&c[(s_i+3)*n+s_j+16], v11);
 		}
 	}
 
@@ -108,10 +108,14 @@ int main(int argc, char * argv[]){
 	int l = stoi(argv[3]);
 	string res_file = argv[4];
 
-	float* a = new float[m * l];
-	float* b = new float[l * n];
-	float * c1 = new float[m * n];
-	float * c2 = new float[m * n];
+	//float* a = new float[m * l];
+	//float* b = new float[l * n];
+	//float * c1 = new float[m * n];
+	//float * c2 = new float[m * n];
+	float* a = (float*)_mm_malloc(m * l * sizeof(float), 64);
+	float* b = (float*)_mm_malloc(l * n * sizeof(float), 64);
+	float* c1 = (float*)_mm_malloc(m * n * sizeof(float), 64);
+	float* c2 = (float*)_mm_malloc(m * n * sizeof(float), 64);
 
 	FILE* fp0 = fopen(src_file0.c_str(), "rb");
 	FILE* fp1 = fopen(src_file1.c_str(), "rb");

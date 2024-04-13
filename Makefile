@@ -2,7 +2,7 @@ all: exe1 exe2 exe3
 
 exe1: exe_generate_random exe_check 
 exe2: exe_gemm_base exe_gemm_base_1 exe_gemm_base_2 exe_gemm_base_3
-exe3: exe_gemm_4
+exe3: exe_gemm_float exe_gemm_float_mem_align
 
 exe_generate_random: generate_random.cpp
 	g++ -O3 -g generate_random.cpp -o exe_generate_random
@@ -16,8 +16,10 @@ exe_gemm_base_2: gemm_base_2.cpp
 	g++ -O3 -g gemm_base_2.cpp -o exe_gemm_base_2 -fopenmp
 exe_gemm_base_3: gemm_base_3.cpp
 	g++ -O3 -g gemm_base_3.cpp -o exe_gemm_base_3 -fopenmp -mavx2
-exe_gemm_4: gemm_base_4.cpp
-	g++ -O3 -g gemm_base_4.cpp -o exe_gemm_4 -mavx2 -fopenmp
+exe_gemm_float: gemm_float.cpp
+	g++ -O3 -g gemm_float.cpp -o exe_gemm_float -mavx2 -fopenmp
+exe_gemm_float_mem_align: gemm_float_mem_align.cpp
+	g++ -O3 -g gemm_float_mem_align.cpp -o exe_gemm_float_mem_align -mavx2 -fopenmp
 
 clean:
 	rm -rf exe_*
