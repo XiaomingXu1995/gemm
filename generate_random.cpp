@@ -18,11 +18,12 @@ int main(int argc, char* argv[]) {
   std::default_random_engine generator(rd());
 
   // 创建一个分布，这里使用的是均匀分布，指定了生成随机数的范围为1到100
-  std::uniform_int_distribution<int> distribution(1, 20);
+  //std::uniform_int_distribution<int> distribution(1, 20);
+  std::uniform_real_distribution<float> distribution(0.0f, 20.0f);
 
-	vector<int> res(nums, 0);
+	vector<float> res(nums, 0);
 	for(int i = 0; i < nums; i++){
-  	int randomNumber = distribution(generator);
+  	float randomNumber = distribution(generator);
 		res[i] = randomNumber;
 	}
 
@@ -31,7 +32,7 @@ int main(int argc, char* argv[]) {
 		cerr << "error open the file: " << res_file << endl;
 		return 2;
 	}
-	size_t written = fwrite(res.data(), sizeof(int), nums, fp); 
+	size_t written = fwrite(res.data(), sizeof(float), nums, fp); 
 	if(written != nums){
 		cerr << "failed to write all data into file" << endl;
 		fclose(fp);

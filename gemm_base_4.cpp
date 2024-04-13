@@ -2,13 +2,14 @@
 #include <vector>
 #include <sys/time.h>
 #include <assert.h>
+#include <immintrin.h>
 
 using namespace std;
 
 //const string src_file0 = "million0.file";
 //const string src_file1 = "million1.file";
-const string src_file0 = "billion0.random";
-const string src_file1 = "billion1.random";
+const string src_file0 = "billion0.float.random";
+const string src_file1 = "billion1.float.random";
 
 double get_sec(){
 	struct timeval tv;
@@ -24,8 +25,77 @@ void gemm_base_naive(float* a, float* b, float* c, int m, int n, int l){
 			}
 		}
 	}
+}
+
+void gemm_base_vec(float* a, float* b, float* c, int m, int n, int l){
+	__m256 v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11;
+	//n == 24
+	
+	int s_i = 0;
+	int s_k = 0;
+	//n = 24;
+	//int k = l;
+
+	#pragma omp parallel for num_threads(10)
+	for(int s_j = 0; s_j < n; s_j+=24){
+		for(int s_i = 0; s_i < m; s_i+=4){
+			__m256 v0 = _mm256_set1_ps(0.0);
+			__m256 v1 = v0; 
+			__m256 v2 = v0; 
+			__m256 v3 = v0; 
+			__m256 v4 = v0; 
+			__m256 v5 = v0; 
+			__m256 v6 = v0; 
+			__m256 v7 = v0; 
+			__m256 v8 = v0; 
+			__m256 v9 = v0; 
+			__m256 v10 = v0; 
+			__m256 v11 = v0; 
+			for(int kk = 0; kk < l; kk++){
+				__m256 v12 = _mm256_loadu_ps(&b[kk*n+s_j + 0]);
+				__m256 v13 = _mm256_loadu_ps(&b[kk*n+s_j + 8]);
+				__m256 v14 = _mm256_loadu_ps(&b[kk*n+s_j + 16]);
+
+				__m256 v15 = _mm256_set1_ps(a[(s_i+0)*l+kk]);
+				v0 = _mm256_add_ps(v0, _mm256_mul_ps(v15, v12));
+				v1 = _mm256_add_ps(v1, _mm256_mul_ps(v15, v13));
+				v2 = _mm256_add_ps(v2, _mm256_mul_ps(v15, v14));
+
+				v15 = _mm256_set1_ps(a[(s_i+1)*l+kk]);
+				v3 = _mm256_add_ps(v3, _mm256_mul_ps(v15, v12));
+				v4 = _mm256_add_ps(v4, _mm256_mul_ps(v15, v13));
+				v5 = _mm256_add_ps(v5, _mm256_mul_ps(v15, v14));
+
+				v15 = _mm256_set1_ps(a[(s_i+2)*l+kk]);
+				v6 = _mm256_add_ps(v6, _mm256_mul_ps(v15, v12));
+				v7 = _mm256_add_ps(v7, _mm256_mul_ps(v15, v13));
+				v8 = _mm256_add_ps(v8, _mm256_mul_ps(v15, v14));
+
+				v15 = _mm256_set1_ps(a[(s_i+3)*l+kk]);
+				v9 = _mm256_add_ps(v9, _mm256_mul_ps(v15, v12));
+				v10 = _mm256_add_ps(v10, _mm256_mul_ps(v15, v13));
+				v11 = _mm256_add_ps(v11, _mm256_mul_ps(v15, v14));
+			}
+			_mm256_storeu_ps(&c[(s_i+0)*n+s_j+0], v0);
+			_mm256_storeu_ps(&c[(s_i+0)*n+s_j+8], v1);
+			_mm256_storeu_ps(&c[(s_i+0)*n+s_j+16], v2);
+
+			_mm256_storeu_ps(&c[(s_i+1)*n+s_j+0], v3);
+			_mm256_storeu_ps(&c[(s_i+1)*n+s_j+8], v4);
+			_mm256_storeu_ps(&c[(s_i+1)*n+s_j+16], v5);
+
+			_mm256_storeu_ps(&c[(s_i+2)*n+s_j+0], v6);
+			_mm256_storeu_ps(&c[(s_i+2)*n+s_j+8], v7);
+			_mm256_storeu_ps(&c[(s_i+2)*n+s_j+16], v8);
+
+			_mm256_storeu_ps(&c[(s_i+3)*n+s_j+0], v9);
+			_mm256_storeu_ps(&c[(s_i+3)*n+s_j+8], v10);
+			_mm256_storeu_ps(&c[(s_i+3)*n+s_j+16], v11);
+		}
+	}
 
 }
+
 
 int main(int argc, char * argv[]){
 	double t0 = get_sec();
@@ -51,10 +121,18 @@ int main(int argc, char * argv[]){
 	int read_a = fread(a, sizeof(float), m * l, fp0);
 	assert(read_a == m * l);
 	fclose(fp0);
+	//for(int i = 0; i < m * l; i++){
+	//	cout << a[i] << endl;
+	//}
+	//cout << "----------------" << endl;
 
 	int read_b = fread(b, sizeof(float), l * n, fp1);
 	assert(read_b == l * n);
 	fclose(fp1);
+	//for(int i = 0; i < n * l; i++){
+	//	cout << b[i] << endl;
+	//}
+	//exit(0);
 
 	for(int i = 0; i < m * n; i++){
 		c1[i] = 0.0;
@@ -78,19 +156,31 @@ int main(int argc, char * argv[]){
 	//gemm_base(matrix0, matrix1, res, m, n, l);
 
 	double t2 = get_sec();
-	cerr << "======time of gemm_base is: " << t2 - t1 << endl;
+	cerr << "======time of gemm_base_naive is: " << t2 - t1 << endl;
 	double gflops = (double)num_ops * 1e-9 / (t2-t1);
-	fprintf(stderr, "the gflops of matrix %d %d %d is: %lf\n", m, n, l, gflops); 
+	fprintf(stderr, "the gflops of gemm_base_naive matrix %d %d %d is: %lf\n", m, n, l, gflops); 
+
+	gemm_base_vec(a, b, c2, m, n, l);
+	double t2_2 = get_sec();
+	cerr << "======time of gemm_base_vec is: " << t2_2 - t2 << endl;
+	double gflops_2 = (double)num_ops * 1e-9 / (t2_2-t2);
+	fprintf(stderr, "the gflops of gemm_base_vec matrix %d %d %d is: %lf\n", m, n, l, gflops_2); 
 
 	string res_file_base0 = res_file + ".base0";
 	FILE* fp_res = fopen(res_file_base0.c_str(), "wb");
 	assert(fp_res != NULL);
-	int written = fwrite(c1, sizeof(float), m * n, fp_res);
-	assert(written == m * n);
+	int err_num = 0;
+	for(int i = 0; i < m * n; i++){
+		if(abs(c1[i]-c2[i]) > 1e-5){
+			err_num++;
+			fprintf(fp_res, "%d\t%f\t%f\n", i, c1[i], c2[i]);
+		}
+	}
 	fclose(fp_res);
 
 	double t3 = get_sec();
-	cerr << "======time of save result gemm_base is: " << t3 - t2 << endl;
+	cerr << "======time of check result gemm_base is: " << t3 - t2_2 << endl;
+	cerr << "-----the error number is: " << err_num << endl;
 
 	cerr << "finished!" << endl;
 

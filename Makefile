@@ -17,7 +17,7 @@ exe_gemm_base_2: gemm_base_2.cpp
 exe_gemm_base_3: gemm_base_3.cpp
 	g++ -O3 -g gemm_base_3.cpp -o exe_gemm_base_3 -fopenmp -mavx2
 exe_gemm_4: gemm_base_4.cpp
-	g++ -O3 -g gemm_base_4.cpp -o exe_gemm_4 -mavx2
+	g++ -O3 -g gemm_base_4.cpp -o exe_gemm_4 -mavx2 -fopenmp
 
 clean:
 	rm -rf exe_*
