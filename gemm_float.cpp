@@ -186,6 +186,12 @@ int main(int argc, char * argv[]){
 	cerr << "======time of check result gemm_base is: " << t3 - t2_2 << endl;
 	cerr << "-----the error number is: " << err_num << endl;
 
+	delete [] a;
+	delete [] b;
+	delete [] c1;
+	delete [] c2;
+
+
 	cerr << "finished!" << endl;
 
 	return 0;
