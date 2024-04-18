@@ -17,11 +17,11 @@ exe_gemm_base_2: gemm_base_2.cpp
 exe_gemm_base_3: gemm_base_3.cpp
 	g++ -O3 -g gemm_base_3.cpp -o exe_gemm_base_3 -fopenmp -mavx2
 exe_gemm_float: gemm_float.cpp
-	g++ -O3 -g gemm_float.cpp -o exe_gemm_float -mavx2 -fopenmp
+	g++ -O3 -g gemm_float.cpp -o exe_gemm_float -mavx2 -fopenmp -ffast-math -fstrict-aliasing -mfma
 exe_gemm_float_mem_align: gemm_float_mem_align.cpp
 	g++ -O3 -g gemm_float_mem_align.cpp -o exe_gemm_float_mem_align -mavx2 -fopenmp
 exe_gemm_float_multiple: gemm_float_multiple.cpp
-	g++ -O3 -g gemm_float_multiple.cpp -o exe_gemm_float_multiple -mavx2 -lpthread
+	g++ -O3 -g gemm_float_multiple.cpp -o exe_gemm_float_multiple -mavx2 -lpthread -mfma
 
 clean:
 	rm -rf exe_*

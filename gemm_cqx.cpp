@@ -242,96 +242,96 @@
 //}
 
 //103G flops
-//void sgemm_naive(float *A, float *B, float *C, int m, int k)
-//{
-//    float *AA = A;
-//    float *CC = C;
-//
-//    for(int i = 0; i < m; i += 4)
-//    {
-//        float *BB = B;
-//
-//        __m256 vc0 = _mm256_loadu_ps(CC + 0);
-//        __m256 vc1 = _mm256_loadu_ps(CC + 8);
-//        __m256 vc2 = _mm256_loadu_ps(CC + 16);
-//
-//        __m256 vc3 = _mm256_loadu_ps(CC + 24);
-//        __m256 vc4 = _mm256_loadu_ps(CC + 32);
-//        __m256 vc5 = _mm256_loadu_ps(CC + 40);
-//
-//        __m256 vc6 = _mm256_loadu_ps(CC + 48);
-//        __m256 vc7 = _mm256_loadu_ps(CC + 56);
-//        __m256 vc8 = _mm256_loadu_ps(CC + 64);
-//
-//        __m256 vc9 = _mm256_loadu_ps(CC + 72);
-//        __m256 vc10 = _mm256_loadu_ps(CC + 80);
-//        __m256 vc11 = _mm256_loadu_ps(CC + 88);
-//
-//
-//        for(int kk = 0; kk < k; kk += 1)
-//        {
-//            __m256 va0 = _mm256_set1_ps(AA[0]);
-//            //__m256 va1 = _mm256_set1_ps(AA[k]);
-//
-//            //__m256 va2 = _mm256_set1_ps(AA[2 * k]);
-//            //__m256 va3 = _mm256_set1_ps(AA[3 * k]);
-//
-//            //__m256 vb0 = _mm256_loadu_ps(B + kk * 24 + 0);
-//            //__m256 vb1 = _mm256_loadu_ps(B + kk * 24 + 8);
-//            //__m256 vb2 = _mm256_loadu_ps(B + kk * 24 + 16);
-//            __m256 vb0 = _mm256_loadu_ps(BB + 0);
-//            __m256 vb1 = _mm256_loadu_ps(BB + 8);
-//            __m256 vb2 = _mm256_loadu_ps(BB + 16);
-//
-//            vc0 = _mm256_fmadd_ps(va0, vb0, vc0);
-//            vc1 = _mm256_fmadd_ps(va0, vb1, vc1);
-//            vc2 = _mm256_fmadd_ps(va0, vb2, vc2);
-//
-//            va0 = _mm256_set1_ps(AA[k]);
-//
-//            vc3 = _mm256_fmadd_ps(va0, vb0, vc3);
-//            vc4 = _mm256_fmadd_ps(va0, vb1, vc4);
-//            vc5 = _mm256_fmadd_ps(va0, vb2, vc5);
-//
-//            //__asm__ __volatile__("lfence":::);
-//
-//            va0 = _mm256_set1_ps(AA[2 * k]);
-//
-//            vc6 = _mm256_fmadd_ps(va0, vb0, vc6);
-//            vc7 = _mm256_fmadd_ps(va0, vb1, vc7);
-//            vc8 = _mm256_fmadd_ps(va0, vb2, vc8);
-//
-//            va0 = _mm256_set1_ps(AA[3 * k]);
-//
-//            vc9 = _mm256_fmadd_ps(va0, vb0, vc9);
-//            vc10 = _mm256_fmadd_ps(va0, vb1, vc10);
-//            vc11 = _mm256_fmadd_ps(va0, vb2, vc11);
-//
-//            AA += 1;
-//            BB += 24;
-//        }
-//
-//        AA += 3 * k;
-//
-//        _mm256_storeu_ps(CC + 0, vc0);
-//        _mm256_storeu_ps(CC + 8, vc1);
-//        _mm256_storeu_ps(CC + 16, vc2);
-//
-//        _mm256_storeu_ps(CC + 24, vc3);
-//        _mm256_storeu_ps(CC + 32, vc4);
-//        _mm256_storeu_ps(CC + 40, vc5);
-//
-//        _mm256_storeu_ps(CC + 48, vc6);
-//        _mm256_storeu_ps(CC + 56, vc7);
-//        _mm256_storeu_ps(CC + 64, vc8);
-//
-//        _mm256_storeu_ps(CC + 72, vc9);
-//        _mm256_storeu_ps(CC + 80, vc10);
-//        _mm256_storeu_ps(CC + 88, vc11);
-//
-//        CC += 96;
-//    }
-//}
+void sgemm_naive(float *A, float *B, float *C, int m, int k)
+{
+    float *AA = A;
+    float *CC = C;
+
+    for(int i = 0; i < m; i += 4)
+    {
+        float *BB = B;
+
+        __m256 vc0 = _mm256_loadu_ps(CC + 0);
+        __m256 vc1 = _mm256_loadu_ps(CC + 8);
+        __m256 vc2 = _mm256_loadu_ps(CC + 16);
+
+        __m256 vc3 = _mm256_loadu_ps(CC + 24);
+        __m256 vc4 = _mm256_loadu_ps(CC + 32);
+        __m256 vc5 = _mm256_loadu_ps(CC + 40);
+
+        __m256 vc6 = _mm256_loadu_ps(CC + 48);
+        __m256 vc7 = _mm256_loadu_ps(CC + 56);
+        __m256 vc8 = _mm256_loadu_ps(CC + 64);
+
+        __m256 vc9 = _mm256_loadu_ps(CC + 72);
+        __m256 vc10 = _mm256_loadu_ps(CC + 80);
+        __m256 vc11 = _mm256_loadu_ps(CC + 88);
+
+
+        for(int kk = 0; kk < k; kk += 1)
+        {
+            __m256 va0 = _mm256_set1_ps(AA[0]);
+            //__m256 va1 = _mm256_set1_ps(AA[k]);
+
+            //__m256 va2 = _mm256_set1_ps(AA[2 * k]);
+            //__m256 va3 = _mm256_set1_ps(AA[3 * k]);
+
+            //__m256 vb0 = _mm256_loadu_ps(B + kk * 24 + 0);
+            //__m256 vb1 = _mm256_loadu_ps(B + kk * 24 + 8);
+            //__m256 vb2 = _mm256_loadu_ps(B + kk * 24 + 16);
+            __m256 vb0 = _mm256_loadu_ps(BB + 0);
+            __m256 vb1 = _mm256_loadu_ps(BB + 8);
+            __m256 vb2 = _mm256_loadu_ps(BB + 16);
+
+            vc0 = _mm256_fmadd_ps(va0, vb0, vc0);
+            vc1 = _mm256_fmadd_ps(va0, vb1, vc1);
+            vc2 = _mm256_fmadd_ps(va0, vb2, vc2);
+
+            va0 = _mm256_set1_ps(AA[k]);
+
+            vc3 = _mm256_fmadd_ps(va0, vb0, vc3);
+            vc4 = _mm256_fmadd_ps(va0, vb1, vc4);
+            vc5 = _mm256_fmadd_ps(va0, vb2, vc5);
+
+            //__asm__ __volatile__("lfence":::);
+
+            va0 = _mm256_set1_ps(AA[2 * k]);
+
+            vc6 = _mm256_fmadd_ps(va0, vb0, vc6);
+            vc7 = _mm256_fmadd_ps(va0, vb1, vc7);
+            vc8 = _mm256_fmadd_ps(va0, vb2, vc8);
+
+            va0 = _mm256_set1_ps(AA[3 * k]);
+
+            vc9 = _mm256_fmadd_ps(va0, vb0, vc9);
+            vc10 = _mm256_fmadd_ps(va0, vb1, vc10);
+            vc11 = _mm256_fmadd_ps(va0, vb2, vc11);
+
+            AA += 1;
+            BB += 24;
+        }
+
+        AA += 3 * k;
+
+        _mm256_storeu_ps(CC + 0, vc0);
+        _mm256_storeu_ps(CC + 8, vc1);
+        _mm256_storeu_ps(CC + 16, vc2);
+
+        _mm256_storeu_ps(CC + 24, vc3);
+        _mm256_storeu_ps(CC + 32, vc4);
+        _mm256_storeu_ps(CC + 40, vc5);
+
+        _mm256_storeu_ps(CC + 48, vc6);
+        _mm256_storeu_ps(CC + 56, vc7);
+        _mm256_storeu_ps(CC + 64, vc8);
+
+        _mm256_storeu_ps(CC + 72, vc9);
+        _mm256_storeu_ps(CC + 80, vc10);
+        _mm256_storeu_ps(CC + 88, vc11);
+
+        CC += 96;
+    }
+}
 
 static void thread_bind(int cpu)
 {

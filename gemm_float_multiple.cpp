@@ -83,24 +83,36 @@ void gemm_base_vec(float* a, float* b, float* c, int m, int n, int l){
 				__m256 v14 = _mm256_load_ps(&b[kk*n+s_j + 16]);
 
 				__m256 v15 = _mm256_set1_ps(a[(s_i+0)*l+kk]);
-				v0 = _mm256_add_ps(v0, _mm256_mul_ps(v15, v12));
-				v1 = _mm256_add_ps(v1, _mm256_mul_ps(v15, v13));
-				v2 = _mm256_add_ps(v2, _mm256_mul_ps(v15, v14));
+				// v0 = _mm256_add_ps(v0, _mm256_mul_ps(v15, v12));
+				// v1 = _mm256_add_ps(v1, _mm256_mul_ps(v15, v13));
+				// v2 = _mm256_add_ps(v2, _mm256_mul_ps(v15, v14));
+				v0 = _mm256_fmadd_ps(v15, v12, v0);
+				v1 = _mm256_fmadd_ps(v15, v13, v1);
+				v2 = _mm256_fmadd_ps(v15, v14, v2);
 
 				v15 = _mm256_set1_ps(a[(s_i+1)*l+kk]);
-				v3 = _mm256_add_ps(v3, _mm256_mul_ps(v15, v12));
-				v4 = _mm256_add_ps(v4, _mm256_mul_ps(v15, v13));
-				v5 = _mm256_add_ps(v5, _mm256_mul_ps(v15, v14));
+				// v3 = _mm256_add_ps(v3, _mm256_mul_ps(v15, v12));
+				// v4 = _mm256_add_ps(v4, _mm256_mul_ps(v15, v13));
+				// v5 = _mm256_add_ps(v5, _mm256_mul_ps(v15, v14));
+				v3 = _mm256_fmadd_ps(v15, v12, v3);
+				v4 = _mm256_fmadd_ps(v15, v13, v4);
+				v5 = _mm256_fmadd_ps(v15, v14, v5);
 
 				v15 = _mm256_set1_ps(a[(s_i+2)*l+kk]);
-				v6 = _mm256_add_ps(v6, _mm256_mul_ps(v15, v12));
-				v7 = _mm256_add_ps(v7, _mm256_mul_ps(v15, v13));
-				v8 = _mm256_add_ps(v8, _mm256_mul_ps(v15, v14));
+				// v6 = _mm256_add_ps(v6, _mm256_mul_ps(v15, v12));
+				// v7 = _mm256_add_ps(v7, _mm256_mul_ps(v15, v13));
+				// v8 = _mm256_add_ps(v8, _mm256_mul_ps(v15, v14));
+				v6 = _mm256_fmadd_ps(v15, v12, v6);
+				v7 = _mm256_fmadd_ps(v15, v13, v7);
+				v8 = _mm256_fmadd_ps(v15, v14, v8);
 
 				v15 = _mm256_set1_ps(a[(s_i+3)*l+kk]);
-				v9 = _mm256_add_ps(v9, _mm256_mul_ps(v15, v12));
-				v10 = _mm256_add_ps(v10, _mm256_mul_ps(v15, v13));
-				v11 = _mm256_add_ps(v11, _mm256_mul_ps(v15, v14));
+				// v9 = _mm256_add_ps(v9, _mm256_mul_ps(v15, v12));
+				// v10 = _mm256_add_ps(v10, _mm256_mul_ps(v15, v13));
+				// v11 = _mm256_add_ps(v11, _mm256_mul_ps(v15, v14));
+				v9 = _mm256_fmadd_ps(v15, v12, v9);
+				v10 = _mm256_fmadd_ps(v15, v13, v10);
+				v11 = _mm256_fmadd_ps(v15, v14, v11);
 			}
 			_mm256_store_ps(&c[(s_i+0)*n+s_j+0], v0);
 			_mm256_store_ps(&c[(s_i+0)*n+s_j+8], v1);

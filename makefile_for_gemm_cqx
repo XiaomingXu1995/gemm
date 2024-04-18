@@ -2,14 +2,14 @@
 CPPFLAGS = -O3 -g -ffast-math -march=native -fstrict-aliasing -pthread
 CPPFLAGS_ASM = -O3 -ffast-math -march=native -fstrict-aliasing -S -pthread
 
-all : main
+all : gemm_cqx
 
-main : main1.cpp
+main : gemm_cqx.cpp
 	g++ $^ -o $@ $(CPPFLAGS)
 
-asm : main1.cpp
+asm : gemm_cqx.cpp
 	g++ $^ $(CPPFLAGS_ASM)
 
 clean: 
-	@rm -f main
-	@rm -f main.s
+	@rm -f gemm_cqx
+	@rm -f gemm_cqx.s

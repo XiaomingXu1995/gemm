@@ -2,3 +2,4 @@ exe_*
 *.random
 *.base0
 *.swp
+gemm_cqx
