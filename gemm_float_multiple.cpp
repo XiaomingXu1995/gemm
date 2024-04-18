@@ -4,6 +4,9 @@
 #include <assert.h>
 #include <immintrin.h>
 #include <pthread.h>
+#include <sys/mman.h>
+
+
 
 using namespace std;
 
@@ -26,7 +29,17 @@ static void thread_bind(int cpu){
 		fprintf(stderr, "Error: cpu[%d] bind failed.\n", cpu);
 		exit(0);
 	}
+}
 
+static void *page_alloc(size_t size)
+{
+    void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    if (data == (void*)-1)
+    {
+        fprintf(stderr, "Error(MemData::Construction): mmap failed.\n");
+        exit(0);
+    }
+    return data;
 }
 
 void gemm_base_naive(float* a, float* b, float* c, int m, int n, int l){
@@ -121,17 +134,23 @@ int main(int argc, char * argv[]){
 	int l = stoi(argv[3]);
 	string res_file = argv[4];
 
-	thread_bind(0);
+	thread_bind(1);
 
 	//float* a = new float[m * l];
 	//float* b = new float[l * n];
 	//float * c1 = new float[m * n];
 	//float * c2 = new float[m * n];
-	float* a = (float*)_mm_malloc(m * l * sizeof(float), 64);
-	float* b = (float*)_mm_malloc(l * n * sizeof(float), 64);
-	float* c1 = (float*)_mm_malloc(m * n * sizeof(float), 64);
-	float* c2 = (float*)_mm_malloc(m * n * sizeof(float), 64);
+	
+	// float* a = (float*)_mm_malloc(m * l * sizeof(float), 64);
+	// float* b = (float*)_mm_malloc(l * n * sizeof(float), 64);
+	// float* c1 = (float*)_mm_malloc(m * n * sizeof(float), 64);
+	// float* c2 = (float*)_mm_malloc(m * n * sizeof(float), 64);
 
+	float* a = (float*)page_alloc(m * l * sizeof(float));
+	float* b = (float*)page_alloc(l * n * sizeof(float));
+	float* c1 = (float*)page_alloc(m * n * sizeof(float));
+	float* c2 = (float*)page_alloc(m * n * sizeof(float));
+	
 	FILE* fp0 = fopen(src_file0.c_str(), "rb");
 	FILE* fp1 = fopen(src_file1.c_str(), "rb");
 	assert(fp0 != NULL);

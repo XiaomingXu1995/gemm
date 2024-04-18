@@ -8,8 +8,8 @@ using namespace std;
 
 //const string src_file0 = "million0.file";
 //const string src_file1 = "million1.file";
-const string src_file0 = "billion0.random";
-const string src_file1 = "billion1.random";
+const string src_file0 = "billion0.int.random";
+const string src_file1 = "billion1.int.random";
 
 double get_sec(){
 	struct timeval tv;
