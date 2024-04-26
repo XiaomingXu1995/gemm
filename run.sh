@@ -1,5 +1,4 @@
 set -x
-./exe_gemm_base 2000 2000 2000 res0
-./exe_gemm_base_1 2000 2000 2000 res1
-./exe_gemm_base_2 2000 2000 2000 res2
-./exe_gemm_base_3 2000 2000 2000 res3
+./exe_gemm_float 2400 2400 2400 res0
+./exe_gemm_float_multiple 24 24 64 res1
+./exe_gemm_int 2400 2400 2400 res2

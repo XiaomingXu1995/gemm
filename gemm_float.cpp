@@ -26,12 +26,6 @@ void gemm_base_naive(float* a, float* b, float* c, int m, int n, int l){
 }
 
 void gemm_base_vec(float* a, float* b, float* c, int m, int n, int l){
-	__m256 v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11;
-	
-	int s_i = 0;
-	int s_k = 0;
-	//n = 24;
-
 	for(int s_j = 0; s_j < n; s_j+=24){
 		for(int s_i = 0; s_i < m; s_i+=4){
 			__m256 v0 = _mm256_set1_ps(0.0);
