@@ -6,8 +6,6 @@
 
 using namespace std;
 
-//const string src_file0 = "million0.file";
-//const string src_file1 = "million1.file";
 const string src_file0 = "billion0.float.random";
 const string src_file1 = "billion1.float.random";
 
@@ -29,14 +27,11 @@ void gemm_base_naive(float* a, float* b, float* c, int m, int n, int l){
 
 void gemm_base_vec(float* a, float* b, float* c, int m, int n, int l){
 	__m256 v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11;
-	//n == 24
 	
 	int s_i = 0;
 	int s_k = 0;
 	//n = 24;
-	//int k = l;
 
-	//#pragma omp parallel for num_threads(10)
 	for(int s_j = 0; s_j < n; s_j+=24){
 		for(int s_i = 0; s_i < m; s_i+=4){
 			__m256 v0 = _mm256_set1_ps(0.0);
@@ -137,31 +132,16 @@ int main(int argc, char * argv[]){
 	int read_a = fread(a, sizeof(float), m * l, fp0);
 	assert(read_a == m * l);
 	fclose(fp0);
-	//for(int i = 0; i < m * l; i++){
-	//	cout << a[i] << endl;
-	//}
-	//cout << "----------------" << endl;
 
 	int read_b = fread(b, sizeof(float), l * n, fp1);
 	assert(read_b == l * n);
 	fclose(fp1);
-	//for(int i = 0; i < n * l; i++){
-	//	cout << b[i] << endl;
-	//}
-	//exit(0);
 
 	for(int i = 0; i < m * n; i++){
 		c1[i] = 0.0;
 		c2[i] = 0.0;
 	}
 	
-	//int** res = new int*[m];
-	//for(int i = 0; i < m; i++){
-	//	res[i] = new int[n];
-	//	for(int j = 0; j < n; j++){
-	//		res[i][j] = 0;
-	//	}
-	//}
 
 	long num_ops = 2L * m * n * l;
 
@@ -169,7 +149,6 @@ int main(int argc, char * argv[]){
 	cerr << "======time of init matrix is: " << t1 - t0 << endl;
 
 	gemm_base_naive(a, b, c1, m, n, l);
-	//gemm_base(matrix0, matrix1, res, m, n, l);
 
 	double t2 = get_sec();
 	cerr << "======time of gemm_base_naive is: " << t2 - t1 << endl;
@@ -177,9 +156,9 @@ int main(int argc, char * argv[]){
 	fprintf(stderr, "the gflops of gemm_base_naive matrix %d %d %d is: %lf\n", m, n, l, gflops); 
 
 	gemm_base_vec(a, b, c2, m, n, l);
-	double t2_2 = get_sec();
-	cerr << "======time of gemm_base_vec is: " << t2_2 - t2 << endl;
-	double gflops_2 = (double)num_ops * 1e-9 / (t2_2-t2);
+	double t3 = get_sec();
+	cerr << "======time of gemm_base_vec is: " << t3 - t2 << endl;
+	double gflops_2 = (double)num_ops * 1e-9 / (t3-t2);
 	fprintf(stderr, "the gflops of gemm_base_vec matrix %d %d %d is: %lf\n", m, n, l, gflops_2); 
 
 	string res_file_base0 = res_file + ".base0";
@@ -194,8 +173,8 @@ int main(int argc, char * argv[]){
 	}
 	fclose(fp_res);
 
-	double t3 = get_sec();
-	cerr << "======time of check result gemm_base is: " << t3 - t2_2 << endl;
+	double t4 = get_sec();
+	cerr << "======time of check result gemm_base is: " << t4 - t3 << endl;
 	cerr << "-----the error number is: " << err_num << endl;
 
 	delete [] a;
