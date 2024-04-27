@@ -188,14 +188,6 @@ int main(int argc, char * argv[]){
 		c1[i] = 0.0;
 		c2[i] = 0.0;
 	}
-	
-	//int** res = new int*[m];
-	//for(int i = 0; i < m; i++){
-	//	res[i] = new int[n];
-	//	for(int j = 0; j < n; j++){
-	//		res[i][j] = 0;
-	//	}
-	//}
 
 	long num_ops = 2L * m * n * l;
 	int loop_time = (int)(2e11 / num_ops);
