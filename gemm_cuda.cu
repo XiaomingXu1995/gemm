@@ -272,9 +272,9 @@ int main(int argc,char **argv)
     iStart = cpuSecond();//gpu初始时间
     //sumMatrixOnGPU<<<grid,block>>>(d_MatA,d_MatB,d_MatC,nx,ny);//以上述配置线程层级结构的方式启动核函数
 		//matrixMulOnGPU<<<grid, block>>>(d_MatA, d_MatB, d_MatC, nx);
-		//matrixMulOnGPU<<<grid, block>>>(d_MatA, d_MatB, d_MatC, m, n, k);
+		matrixMulOnGPU<<<grid, block>>>(d_MatA, d_MatB, d_MatC, m, n, k);
 		//matrixMul<<<grid, block>>>(d_MatA, d_MatB, d_MatC, n);
-		matrixMul<<<grid, block>>>(d_MatA, d_MatB, d_MatC, m, k, n);
+		//matrixMul<<<grid, block>>>(d_MatA, d_MatB, d_MatC, m, k, n);
     cudaDeviceSynchronize();
     iElaps = cpuSecond() - iStart;
     printf("MulMatrixOnGPU<<<(%d,%d),(%d,%d)>>>elapsed %f sec\n",grid.x,grid.y,block.x,block.y,iElaps);
