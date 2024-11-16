@@ -3,7 +3,8 @@ all: exe1 exe2 exe3 exe4
 exe1: exe_generate_random exe_check 
 exe2: exe_gemm_int 
 exe3: exe_gemm_float exe_gemm_float_multiple
-exe4: exe_gemm_float_cublas
+exe4: exe_gemm_float_cublas exe_gemm_cuda
+
 
 exe_generate_random: generate_random.cpp
 	g++ -O3 -g generate_random.cpp -o exe_generate_random
@@ -17,6 +18,8 @@ exe_gemm_int: gemm_int.cpp
 	g++ -O3 -g gemm_int.cpp -o exe_gemm_int -mavx2 -fopenmp -ffast-math -fstrict-aliasing -mfma
 exe_gemm_float_cublas: gemm_float_cublas.cu
 	nvcc -O3 -g gemm_float_cublas.cu -o exe_gemm_float_cublas -lcublas
+exe_gemm_cuda: gemm_cuda.cu
+	nvcc -O3 -g gemm_cuda.cu -o exe_gemm_cuda 
 
 clean:
 	rm -rf exe_*
