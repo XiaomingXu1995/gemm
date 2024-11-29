@@ -177,9 +177,6 @@ int main(int argc, char *argv[]) {
       cublasSgemm(cublasH, transa, transb, m, n, k, &alpha, d_A, lda, d_B, ldb, &beta, d_C, ldc));
       //cublasDgemm(cublasH, transa, transb, m, n, k, &alpha, d_A, lda, d_B, ldb, &beta, d_C, ldc));
 
-  /* step 4: copy data to host */
-  CUDA_CHECK(cudaMemcpyAsync(gpuRef, d_C, sizeof(data_type) * m * n, cudaMemcpyDeviceToHost,
-                             stream));
 	//cout << "the matrix c2 is: " << endl;
 	//print_matrix(m, n, c2, m);
 
@@ -188,6 +185,9 @@ int main(int argc, char *argv[]) {
 	double gflops_2 = (double)compute_time * 1e-9 / (t6-t5);
 	fprintf(stderr, "the gflops of cublasSgemm matrix %d %d %d is: %lf\n", m, n, k, gflops_2); 
 
+  /* step 4: copy data to host */
+  CUDA_CHECK(cudaMemcpyAsync(gpuRef, d_C, sizeof(data_type) * m * n, cudaMemcpyDeviceToHost,
+                             stream));
   CUDA_CHECK(cudaStreamSynchronize(stream));
 
 

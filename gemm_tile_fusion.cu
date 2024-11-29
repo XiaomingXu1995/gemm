@@ -161,21 +161,39 @@ int main(int argc, char* argv[]){
     cudaMemcpy(d_V, h_V, N * d * sizeof(data_type), cudaMemcpyHostToDevice);
     cudaMemset(d_S, 0, N * N * sizeof(data_type));
     cudaMemset(d_O, 0, N * d * sizeof(data_type));
+
+
     double t3 = get_sec();
     cout << "time of memset h_S,h_O and memcpy d_Q,d_K,d_V is: " << t3-t2 << endl;
-    
-    dim3 threadsPerBlock(16, 16);
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+		cudaEventRecord(start);  // 计时开始
+
+ 		// 设置CUDA计时器
+    dim3 threadsPerBlock(32, 32);
     dim3 blocksPerGrid0((N+threadsPerBlock.x-1)/threadsPerBlock.x, (N+threadsPerBlock.y-1)/threadsPerBlock.y);
     dim3 blocksPerGrid1((d+threadsPerBlock.x-1)/threadsPerBlock.x, (N+threadsPerBlock.y-1)/threadsPerBlock.y);
     cuda_gemm<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
     cuda_gemm<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
     //cudaMemcpy(res_S, d_S, N * N * sizeof(data_type), cudaMemcpyDeviceToHost);
-    cudaMemcpy(res_O, d_O, N * d * sizeof(data_type), cudaMemcpyDeviceToHost);
 
-    double t4 = get_sec();
-    cout << "time of cuda_gemm is: " << t4-t3 << endl;
-    double gops_cuda_gemm = (double)ops * 1e-9 / (t4-t3);
-    cout << "the gpos of cuda_gemm is: " << gops_cuda_gemm << endl;
+		cudaEventRecord(stop);   // 计时结束
+    cudaEventSynchronize(stop);
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+		double cuda_gops = (double)ops * 1e-9 / (milliseconds / 1000.0);
+		cout << "the time of cuda_gemm is: " << milliseconds / 1000.0 << endl;
+		cout << "the GOPS of cuda_gemm is: " << cuda_gops << endl;
+
+    // double t4 = get_sec();
+    // cout << "time of cuda_gemm is: " << t4-t3 << endl;
+    // double gops_cuda_gemm = (double)ops * 1e-9 / (t4-t3);
+    // cout << "the GOPS of cuda_gemm is: " << gops_cuda_gemm << endl;
+
+
+    cudaMemcpy(res_O, d_O, N * d * sizeof(data_type), cudaMemcpyDeviceToHost);
 
     //// check the gemm result
     // checkResult(h_S, res_S, N * N);
