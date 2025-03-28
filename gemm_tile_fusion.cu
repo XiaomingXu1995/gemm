@@ -23,7 +23,7 @@
 }
 
 using namespace std;
-using data_type = int;
+using data_type = float;
 //using data_type = double;
 
 double cpuSecond() {
@@ -63,7 +63,7 @@ void checkResult(data_type *hostRef,data_type *gpuRef,const int N)
         {
             match=0;
             printf("Arrays do not match");
-            printf("host %d gpu %d at current %d\n",hostRef[i],gpuRef[i], i);
+            printf("host %f gpu %f at current %d\n",hostRef[i],gpuRef[i], i);
             break;
         }
     }
@@ -106,6 +106,60 @@ __global__ void cuda_gemm(data_type* A, data_type* B, data_type* C, int m, int n
     }
 }
 
+// 定义tile大小
+#define TILE_WIDTH 32
+#define TILE_HEIGHT 32
+
+__global__ void cuda_gemm_tile(data_type* A, data_type* B, data_type* C, int m, int n, int k) {
+    // 声明共享内存
+    __shared__ data_type As[TILE_HEIGHT][TILE_WIDTH];
+    __shared__ data_type Bs[TILE_WIDTH][TILE_WIDTH];
+    
+    // 计算线程索引
+    int bx = blockIdx.x;
+    int by = blockIdx.y;
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+    
+    // 计算全局索引
+    int row = by * TILE_HEIGHT + ty;
+    int col = bx * TILE_WIDTH + tx;
+    
+    data_type value = 0;
+    
+    // 检查边界
+    if (row < m && col < n) {
+        // 对每个tile进行计算
+        for (int t = 0; t < (k + TILE_WIDTH - 1) / TILE_WIDTH; t++) {
+            // 加载数据到共享内存
+            if (row < m && t * TILE_WIDTH + tx < k) {
+                As[ty][tx] = A[row * k + t * TILE_WIDTH + tx];
+            } else {
+                As[ty][tx] = 0;
+            }
+            
+            if (t * TILE_WIDTH + ty < k && col < n) {
+                Bs[ty][tx] = B[(t * TILE_WIDTH + ty) * n + col];
+            } else {
+                Bs[ty][tx] = 0;
+            }
+            
+            // 同步所有线程
+            __syncthreads();
+            
+            // 计算tile内的点积
+            for (int i = 0; i < TILE_WIDTH; i++) {
+                value += As[ty][i] * Bs[i][tx];
+            }
+            
+            // 同步所有线程
+            __syncthreads();
+        }
+        
+        // 写入结果
+        C[row * n + col] = value;
+    }
+}
 
 int main(int argc, char* argv[]){
     // Q = N * d;
@@ -113,9 +167,15 @@ int main(int argc, char* argv[]){
     // V = N * d;
     int N = 4096;
     int d = 4096;
+    string mm_type = "v1";
+    if(argc >= 2){
+        mm_type = argv[1];
+    }
     if(argc >= 3){
-        N = stoi(argv[1]);
-        d = stoi(argv[2]);
+        N = stoi(argv[2]);
+    }
+    if(argc >= 4){
+        d = stoi(argv[3]);
     }
     size_t ops = 0;
     double t0 = get_sec();
@@ -164,42 +224,106 @@ int main(int argc, char* argv[]){
 
 
     double t3 = get_sec();
-    cout << "time of memset h_S,h_O and memcpy d_Q,d_K,d_V is: " << t3-t2 << endl;
+    printf("time of memset h_S,h_O and memcpy d_Q,d_K,d_V is: %f\n", t3-t2);
 
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-		cudaEventRecord(start);  // 计时开始
 
- 		// 设置CUDA计时器
+    // 设置线程块和网格大小
     dim3 threadsPerBlock(32, 32);
     dim3 blocksPerGrid0((N+threadsPerBlock.x-1)/threadsPerBlock.x, (N+threadsPerBlock.y-1)/threadsPerBlock.y);
     dim3 blocksPerGrid1((d+threadsPerBlock.x-1)/threadsPerBlock.x, (N+threadsPerBlock.y-1)/threadsPerBlock.y);
-    cuda_gemm<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
-    cuda_gemm<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
-    //cudaMemcpy(res_S, d_S, N * N * sizeof(data_type), cudaMemcpyDeviceToHost);
 
-		cudaEventRecord(stop);   // 计时结束
-    cudaEventSynchronize(stop);
-    float milliseconds = 0;
-    cudaEventElapsedTime(&milliseconds, start, stop);
-		double cuda_gops = (double)ops * 1e-9 / (milliseconds / 1000.0);
-		cout << "the time of cuda_gemm is: " << milliseconds / 1000.0 << endl;
-		cout << "the GOPS of cuda_gemm is: " << cuda_gops << endl;
+    printf("-----------------------------------\n");
+    printf("N: %d, d: %d, mm_type: %s\n", N, d, mm_type.c_str());
+    printf("-----------------------------------\n");
 
-    // double t4 = get_sec();
-    // cout << "time of cuda_gemm is: " << t4-t3 << endl;
-    // double gops_cuda_gemm = (double)ops * 1e-9 / (t4-t3);
-    // cout << "the GOPS of cuda_gemm is: " << gops_cuda_gemm << endl;
+    // 测试原始版本
+    if (mm_type == "v1"){
+        cout << "\nTesting original cuda_gemm:" << endl;
+        // 第一轮计算并检查精度
+        cudaEventRecord(start);
+        cuda_gemm<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
+        cuda_gemm<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+    
+        // 检查精度
+        cudaMemcpy(res_S, d_S, N * N * sizeof(data_type), cudaMemcpyDeviceToHost);
+        cudaMemcpy(res_O, d_O, N * d * sizeof(data_type), cudaMemcpyDeviceToHost);
+        cout << "Checking first computation accuracy:" << endl;
+        checkResult(h_S, res_S, N * N);
+        checkResult(h_O, res_O, N * d);
 
+        // 30轮预热
+        cout << "Starting 30 rounds warm-up..." << endl;
+        for(int i = 0; i < 30; i++) {
+            cuda_gemm<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
+            cuda_gemm<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
+        }
+        cudaDeviceSynchronize();
 
-    cudaMemcpy(res_O, d_O, N * d * sizeof(data_type), cudaMemcpyDeviceToHost);
+        // 300轮性能测试
+        cout << "Starting 300 rounds performance test..." << endl;
+        cudaEventRecord(start);
+        for(int i = 0; i < 300; i++) {
+            cuda_gemm<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
+            cuda_gemm<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
+        }
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+    
+        float milliseconds = 0;
+        cudaEventElapsedTime(&milliseconds, start, stop);
+        double avg_time_original = milliseconds / 1000.0 / 300.0;  // 每轮平均时间
+        double tflops_original = (double)ops * 1e-12 / avg_time_original;  // 转换为TFLOPS
+        cout << "Original version - Average time per round: " << avg_time_original << " seconds" << endl;
+        cout << "Original version - Performance: " << tflops_original << " TFLOPS" << endl;
+    }
+    else if (mm_type == "v2"){
 
-    //// check the gemm result
-    // checkResult(h_S, res_S, N * N);
-    checkResult(h_O, res_O, N * d);
+        // 测试tile版本
+        cout << "\nTesting tiled cuda_gemm_tile:" << endl;
+        // 第一轮计算并检查精度
+        cudaEventRecord(start);
+        cuda_gemm_tile<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
+        cuda_gemm_tile<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+    
+        // 检查精度
+        cudaMemcpy(res_S, d_S, N * N * sizeof(data_type), cudaMemcpyDeviceToHost);
+        cudaMemcpy(res_O, d_O, N * d * sizeof(data_type), cudaMemcpyDeviceToHost);
+        cout << "Checking first computation accuracy:" << endl;
+        checkResult(h_S, res_S, N * N);
+        checkResult(h_O, res_O, N * d);
 
+        // 30轮预热
+        cout << "Starting 30 rounds warm-up..." << endl;
+        for(int i = 0; i < 30; i++) {
+            cuda_gemm_tile<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
+            cuda_gemm_tile<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
+        }
+        cudaDeviceSynchronize();
 
+        // 300轮性能测试
+        cout << "Starting 300 rounds performance test..." << endl;
+        cudaEventRecord(start);
+        for(int i = 0; i < 300; i++) {
+            cuda_gemm_tile<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
+            cuda_gemm_tile<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
+        }
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+    
+        float milliseconds = 0;
+        cudaEventElapsedTime(&milliseconds, start, stop);
+        double avg_time_tiled = milliseconds / 1000.0 / 300.0;  // 每轮平均时间
+        double tflops_tiled = (double)ops * 1e-12 / avg_time_tiled;  // 转换为TFLOPS
+        cout << "Tiled version - Average time per round: " << avg_time_tiled << " seconds" << endl;
+        cout << "Tiled version - Performance: " << tflops_tiled << " TFLOPS" << endl;
+    }
 
     free(h_Q);
     free(h_K);
