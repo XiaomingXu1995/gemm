@@ -24,8 +24,18 @@
     }                        \
 }
 
+#define CHECK_CUBLAS(call) { \
+    cublasStatus_t err = call; \
+    if (err != CUBLAS_STATUS_SUCCESS) { \
+        std::cerr << "cuBLAS error in " << __FILE__ << ":" << __LINE__ << " - " << err << std::endl; \
+        exit(-1); \
+    } \
+}
+
 using namespace std;
 using data_type = float;
+using data_type_1 = float;
+//using data_type = float;
 //using data_type = double;
 
 double cpuSecond() {
@@ -34,15 +44,25 @@ double cpuSecond() {
     return ((double)tp.tv_sec + (double)tp.tv_usec*1.e-6);
 }
 
+void initialData_int8(int8_t *ip,int size)
+{
+    int max_int8 = 127;
+    srand(0);
+    for(int i=0;i<size;i++)
+    {
+        ip[i] = rand() % max_int8;
+    }
+}
 void initialData(data_type *ip,int size, int step)
 {
     //generate different seed for random number
-    time_t t;
-    srand((unsigned)time(&t));
+    // time_t t;
+    // srand((unsigned)time(&t));
+    srand(0);
     for(int i=0;i<size;i++)
     {
 				data_type rand_num = rand() % step;
-				ip[i] = rand_num / step;
+				ip[i] = rand_num / step / 1000;
     }
 }
 
@@ -76,10 +96,11 @@ double get_sec(){
 	return (double)tv.tv_sec + (double)tv.tv_usec / 1000000;
 }
 
-void matrixMulOnHost(data_type* A, data_type* B, data_type* C, const int m, const int n, const int k){
+template<typename T, typename U>
+void matrixMulOnHost(T * A, T* B, U * C, const int m, const int n, const int k){
 	// A[m][k], B[k][n], C[m][n];
 	for(int i = 0; i < m; i++){
-			for(int j  = 0; j < k; j++){
+	    for(int j  = 0; j < k; j++){
 		for(int t = 0; t < n; t++){
 				C[i * n + t] += A[i*k + j] * B[j*n + t];
 			}
@@ -87,129 +108,260 @@ void matrixMulOnHost(data_type* A, data_type* B, data_type* C, const int m, cons
 	}
 }
 
+void mm_int8_int8_fp32(int warmup, int repeat, const int m, const int n, const int k){
+  cout << "--------------------------------mm_int8_int8_fp32--------------------------------" << endl;
+  long ops = 2L * m * n * k;
+  cudaStream_t stream = NULL;
+  CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
 
-int main(int argc, char *argv[]) {
-  int dev = 0;
-  cudaDeviceProp deviceProp;
-  //CHECK宏定义检查操作是否正常处理
-  CHECK(cudaGetDeviceProperties(&deviceProp,dev));
-  printf("Using Device %d: %s\n",dev,deviceProp.name);
-  CHECK(cudaSetDevice(dev));
-  //set up data size of matrix
-  int m = 1<<12; //16384
-  int k = 1<<12; //16384
-  int n = 1<<12; //16384
-	int rand_step = 1000;
-	long compute_time = 2L * m * n * k;
-  //int nxy = nx*ny;
-  //int nBytes = nxy*sizeof(data_type);
-  printf("Matrix A size: m %d k %d\n",m,k);
-  printf("Matrix B size: k %d n %d\n",k,n);
-  printf("Matrix C size: m %d n %d\n",m,n);
-  //malloc host memory
-  data_type *h_A,*h_B,*hostRef,*gpuRef;
-  h_A = (data_type*)malloc(m * k * sizeof(data_type));
-  h_B = (data_type*)malloc(k * n * sizeof(data_type));
-  hostRef = (data_type*)malloc(m * n * sizeof(data_type));
-  gpuRef = (data_type*)malloc(m * n * sizeof(data_type));
-  //init data at host side
-	double t0 = get_sec();
-  initialData(h_A,m * k, rand_step);
-  initialData(h_B,k * n, rand_step);
-  memset(hostRef,0, m * n * sizeof(data_type));
-  memset(gpuRef,0, m * n * sizeof(data_type));
+  int8_t *h_A = nullptr;
+  int8_t *h_B = nullptr;
+  float *h_C = nullptr;
+  float *h_C_ref = nullptr;
 
-	double t1 = get_sec();
-	std::cout << "time of init is: " << t1 - t0 << std::endl;
-  //sumMatrixOnHost(h_A,h_B,hostRef,nx,ny);
-	//assert nx == ny == nz, since the malloc is the nx and ny
-	matrixMulOnHost(h_A, h_B, hostRef, m, n, k);
-	double t2 = get_sec();
-  std::cout<<"sumMatrixOnHost cost "<<t2 -t1<<"sec\n";
-	double gflopsCPU = compute_time * 1e-9 / (t2 - t1);
-	std::cout<<"gflops of cpu host is: " << gflopsCPU << std::endl;
+  h_A = (int8_t *)malloc(m * k * sizeof(int8_t));
+  h_B = (int8_t *)malloc(k * n * sizeof(int8_t));
+  h_C = (float *)malloc(m * n * sizeof(float));
+  h_C_ref = (float *)malloc(m * n * sizeof(float));
+  initialData_int8(h_A, m * k);
+  initialData_int8(h_B, k * n);
+  memset(h_C_ref, 0, m * n * sizeof(float));
+  matrixMulOnHost<int8_t, float>(h_A, h_B, h_C_ref, m, n, k);
 
-	//----------------------for cublas-----------------
-	cublasHandle_t cublasH = NULL;
-	cudaStream_t stream = NULL;
+  int8_t *d_A = nullptr;
+  int8_t *d_B = nullptr;
+  float *d_C = nullptr;
 
-	const int lda = m;
-	const int ldb = k;
-	const int ldc = n;
+  cublasHandle_t cublasH = NULL;
+  CUBLAS_CHECK(cublasCreate(&cublasH));
+  CUBLAS_CHECK(cublasSetStream(cublasH, stream));
 
   const data_type alpha = 1.0;
   const data_type beta = 0.0;
 
-  data_type *d_A = nullptr;
-  data_type *d_B = nullptr;
-  data_type *d_C = nullptr;
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(int8_t) * m * k));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_B), sizeof(int8_t) * k * n));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_C), sizeof(float) * m * n));
 
-  cublasOperation_t transa = CUBLAS_OP_T;
-  cublasOperation_t transb = CUBLAS_OP_T;
+  CUDA_CHECK(cudaMemcpyAsync(d_A, h_A, sizeof(int8_t) * m * k, cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(d_B, h_B, sizeof(int8_t) * k * n, cudaMemcpyHostToDevice, stream));
 
-  /* step 1: create cublas handle, bind a stream */
-  CUBLAS_CHECK(cublasCreate(&cublasH));
-  CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-  CUBLAS_CHECK(cublasSetStream(cublasH, stream));
+  CHECK_CUBLAS(cublasGemmEx(
+    cublasH,
+    CUBLAS_OP_N,
+    CUBLAS_OP_N,
+    m, n, k,
+    &alpha, d_A, CUDA_R_8I, m,  // A (INT8 matrix)
+    d_B, CUDA_R_8I, k,         // B (INT8 matrix)
+    &beta,
+    d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
+    CUDA_R_32F,                // The compute type is FP32
+    CUBLAS_GEMM_DEFAULT));     // Use default algorithm
 
-	double t3 = get_sec();
-	cerr << "time of init cuda parameter is: " << t3 - t2 << endl;
-
-
-  /* step 2: copy data to device */
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(data_type) * m * k));
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_B), sizeof(data_type) * k * n));
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_C), sizeof(data_type) * m * n));
-
-	double t4 = get_sec();
-	cerr << "time of init cuda malloc is: " << t4 - t3 << endl;
-
-  CUDA_CHECK(cudaMemcpyAsync(d_A, h_A, sizeof(data_type) * m * k, cudaMemcpyHostToDevice,
-                             stream));
-  CUDA_CHECK(cudaMemcpyAsync(d_B, h_B, sizeof(data_type) * k * n, cudaMemcpyHostToDevice,
-                             stream));
-
-	double t5 = get_sec();
-	cerr << "time of init cuda memcpy Matrix_a and Matrix_b is: " << t5 - t4 << endl;
-
-  /* step 3: compute */
-  CUBLAS_CHECK(
-      cublasSgemm(cublasH, transa, transb, m, n, k, &alpha, d_A, lda, d_B, ldb, &beta, d_C, ldc));
-      //cublasDgemm(cublasH, transa, transb, m, n, k, &alpha, d_A, lda, d_B, ldb, &beta, d_C, ldc));
-
-	//cout << "the matrix c2 is: " << endl;
-	//print_matrix(m, n, c2, m);
-
-	double t6 = get_sec();
-	cerr << "======time of cublasSgemm is: " << t6 - t5 << endl;
-	double gflops_2 = (double)compute_time * 1e-9 / (t6-t5);
-	fprintf(stderr, "the gflops of cublasSgemm matrix %d %d %d is: %lf\n", m, n, k, gflops_2); 
-
-  /* step 4: copy data to host */
-  CUDA_CHECK(cudaMemcpyAsync(gpuRef, d_C, sizeof(data_type) * m * n, cudaMemcpyDeviceToHost,
-                             stream));
   CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaMemcpyAsync(h_C, d_C, sizeof(float) * m * n, cudaMemcpyDeviceToHost, stream));
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+  checkResult(h_C_ref, h_C, m * n);
+
+  for(int i = 0; i < warmup; i++){
+    CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N, 
+        CUBLAS_OP_N, 
+        m, n, k, 
+        &alpha, d_A, CUDA_R_8I, m, 
+        d_B, CUDA_R_8I, k, 
+        &beta, 
+        d_C, CUDA_R_32F, m, 
+        CUDA_R_32F, 
+        CUBLAS_GEMM_DEFAULT));
+  }
+
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaDeviceSynchronize());
+  std::cout << "----int8_int8_fp32 warmup done" << std::endl;
+
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+  CUDA_CHECK(cudaEventRecord(start, stream));
+
+  for(int i = 0; i < repeat; i++){
+    CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        m, n, k,
+        &alpha, d_A, CUDA_R_8I, m,
+        d_B, CUDA_R_8I, k,
+        &beta,
+        d_C, CUDA_R_32F, m,
+        CUDA_R_32F,
+        CUBLAS_GEMM_DEFAULT));
+  }
+
+  CUDA_CHECK(cudaEventRecord(stop, stream));
+  CUDA_CHECK(cudaEventSynchronize(stop));
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  float milliseconds = 0;
+  CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+  std::cout << "----int8_int8_fp32 Time taken: " << milliseconds << " ms" << std::endl;
+  std::cout << "----int8_int8_fp32 TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
 
 
-	double t7 = get_sec();
-	cerr << "======time of check result gemm_base is: " << t7 - t6 << endl;
-  checkResult(hostRef,gpuRef, m*n);
-
+  free(h_A);
+  free(h_B);
+  free(h_C);
+  free(h_C_ref);
 
   CUDA_CHECK(cudaFree(d_A));
   CUDA_CHECK(cudaFree(d_B));
   CUDA_CHECK(cudaFree(d_C));
 
   CUBLAS_CHECK(cublasDestroy(cublasH));
-
   CUDA_CHECK(cudaStreamDestroy(stream));
-
   CUDA_CHECK(cudaDeviceReset());
+}
+
+void mm_fp32_fp32_fp32(int warmup, int repeat, const int m, const int n, const int k){
+  cout << "--------------------------------mm_fp32_fp32_fp32--------------------------------" << endl;
+  long ops = 2L * m * n * k;
+  cudaStream_t stream = NULL;
+  CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+
+  float *h_A = nullptr;
+  float *h_B = nullptr;
+  float *h_C = nullptr;
+  float *h_C_ref = nullptr;
+
+  h_A = (float *)malloc(m * k * sizeof(float));
+  h_B = (float *)malloc(k * n * sizeof(float));
+  h_C = (float *)malloc(m * n * sizeof(float));
+  h_C_ref = (float *)malloc(m * n * sizeof(float));
+  initialData(h_A, m * k, 1000);
+  initialData(h_B, k * n, 1000);
+  memset(h_C_ref, 0, m * n * sizeof(float));
+  matrixMulOnHost<float, float>(h_A, h_B, h_C_ref, m, n, k);
+
+  float *d_A = nullptr;
+  float *d_B = nullptr;
+  float *d_C = nullptr;
+
+  cublasHandle_t cublasH = NULL;
+  CUBLAS_CHECK(cublasCreate(&cublasH));
+  CUBLAS_CHECK(cublasSetStream(cublasH, stream));
+
+  const data_type alpha = 1.0;
+  const data_type beta = 0.0;
+
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(float) * m * k));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_B), sizeof(float) * k * n));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_C), sizeof(float) * m * n));
+
+  CUDA_CHECK(cudaMemcpyAsync(d_A, h_A, sizeof(float) * m * k, cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(d_B, h_B, sizeof(float) * k * n, cudaMemcpyHostToDevice, stream));
+
+  CHECK_CUBLAS(cublasGemmEx(
+    cublasH,
+    CUBLAS_OP_N,
+    CUBLAS_OP_N,
+    m, n, k,
+    &alpha, d_A, CUDA_R_32F, m,  // A (FP32 matrix)
+    d_B, CUDA_R_32F, k,         // B (FP32 matrix)
+    &beta,
+    d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
+    CUDA_R_32F,                // The compute type is FP32
+    CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaMemcpyAsync(h_C, d_C, sizeof(float) * m * n, cudaMemcpyDeviceToHost, stream));
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+  checkResult(h_C_ref, h_C, m * n);
+
+  for(int i = 0; i < warmup; i++){
+    CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N, 
+        CUBLAS_OP_N, 
+        m, n, k, 
+        &alpha, d_A, CUDA_R_32F, m, 
+        d_B, CUDA_R_32F, k, 
+        &beta, 
+        d_C, CUDA_R_32F, m, 
+        CUDA_R_32F, 
+        CUBLAS_GEMM_DEFAULT));
+  }
+
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaDeviceSynchronize());
+  std::cout << "----fp32_fp32_fp32 warmup done" << std::endl;
+
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+  CUDA_CHECK(cudaEventRecord(start, stream));
+
+  for(int i = 0; i < repeat; i++){
+    CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        m, n, k,
+        &alpha, d_A, CUDA_R_32F, m,
+        d_B, CUDA_R_32F, k,
+        &beta,
+        d_C, CUDA_R_32F, m,
+        CUDA_R_32F,
+        CUBLAS_GEMM_DEFAULT));
+  }
+
+  CUDA_CHECK(cudaEventRecord(stop, stream));
+  CUDA_CHECK(cudaEventSynchronize(stop));
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  float milliseconds = 0;
+  CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+  std::cout << "----fp32_fp32_fp32 Time taken: " << milliseconds << " ms" << std::endl;
+  std::cout << "----fp32_fp32_fp32 TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
+
 
   free(h_A);
   free(h_B);
-  free(hostRef);
-  free(gpuRef);
+  free(h_C);
+  free(h_C_ref);
+
+  CUDA_CHECK(cudaFree(d_A));
+  CUDA_CHECK(cudaFree(d_B));
+  CUDA_CHECK(cudaFree(d_C));
+
+  CUBLAS_CHECK(cublasDestroy(cublasH));
+  CUDA_CHECK(cudaStreamDestroy(stream));
+  CUDA_CHECK(cudaDeviceReset());
+}
+
+
+int main(int argc, char *argv[]) {
+  int dev = 0;
+  cudaDeviceProp deviceProp;
+  int bits = 10;
+  if(argc >= 2){
+    bits = std::stoi(argv[1]);
+  }
+  //CHECK宏定义检查操作是否正常处理
+  CHECK(cudaGetDeviceProperties(&deviceProp,dev));
+  printf("Using Device %d: %s\n",dev,deviceProp.name);
+  CHECK(cudaSetDevice(dev));
+  //set up data size of matrix
+  int m = 1<<bits; //16384
+  int k = 1<<bits; //16384
+  int n = 1<<bits; //16384
+  mm_int8_int8_fp32(10, 300, m, n, k);
+  mm_fp32_fp32_fp32(10, 300, m, n, k);
 	return 0;
 
 }

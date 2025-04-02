@@ -3,3 +3,5 @@ exe_*
 *.base0
 *.swp
 gemm_cqx
+build/*
+a.out

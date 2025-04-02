@@ -167,6 +167,7 @@ int main(int argc, char* argv[]){
     // V = N * d;
     int N = 4096;
     int d = 4096;
+    int tile_width = 32;
     string mm_type = "v1";
     if(argc >= 2){
         mm_type = argv[1];
@@ -176,6 +177,9 @@ int main(int argc, char* argv[]){
     }
     if(argc >= 4){
         d = stoi(argv[3]);
+    }
+    if(argc >= 5){
+        tile_width = stoi(argv[4]);
     }
     size_t ops = 0;
     double t0 = get_sec();
@@ -231,7 +235,7 @@ int main(int argc, char* argv[]){
     cudaEventCreate(&stop);
 
     // 设置线程块和网格大小
-    dim3 threadsPerBlock(32, 32);
+    dim3 threadsPerBlock(tile_width, tile_width);
     dim3 blocksPerGrid0((N+threadsPerBlock.x-1)/threadsPerBlock.x, (N+threadsPerBlock.y-1)/threadsPerBlock.y);
     dim3 blocksPerGrid1((d+threadsPerBlock.x-1)/threadsPerBlock.x, (N+threadsPerBlock.y-1)/threadsPerBlock.y);
 
@@ -243,10 +247,8 @@ int main(int argc, char* argv[]){
     if (mm_type == "v1"){
         cout << "\nTesting original cuda_gemm:" << endl;
         // 第一轮计算并检查精度
-        cudaEventRecord(start);
         cuda_gemm<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
         cuda_gemm<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
-        cudaEventRecord(stop);
         cudaEventSynchronize(stop);
     
         // 检查精度
@@ -286,10 +288,8 @@ int main(int argc, char* argv[]){
         // 测试tile版本
         cout << "\nTesting tiled cuda_gemm_tile:" << endl;
         // 第一轮计算并检查精度
-        cudaEventRecord(start);
         cuda_gemm_tile<<<blocksPerGrid0, threadsPerBlock>>>(d_Q, d_K, d_S, N, N, d);
         cuda_gemm_tile<<<blocksPerGrid1, threadsPerBlock>>>(d_S, d_V, d_O, N, d, N);
-        cudaEventRecord(stop);
         cudaEventSynchronize(stop);
     
         // 检查精度
