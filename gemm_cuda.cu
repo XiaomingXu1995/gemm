@@ -3,7 +3,9 @@
 #include<stdio.h>
 #include<sys/time.h>
 #include <iostream>
-#define CHECK(call)                     \
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+#define CUDA_CHECK(call)                     \
 {                                       \
     const cudaError_t error = call;     \
     if(error!=cudaSuccess)              \
@@ -21,15 +23,34 @@ double cpuSecond() {
     return ((double)tp.tv_sec + (double)tp.tv_usec*1.e-6);
 }
 //初始化数组
-void initialData(float *ip,int size, int step)
+template<typename T>    
+void initialData(T *ip,int size, int step)
 {
     //generate different seed for random number
-    time_t t;
-    srand((unsigned)time(&t));
-    for(int i=0;i<size;i++)
-    {
-				float rand_num = rand() % step;
-				ip[i] = rand_num / step;
+    if constexpr (std::is_same<T, int8_t>::value){
+      srand(23);
+      step = 127;
+      for(int i=0;i<size;i++)
+      {
+        int rand_num = rand() % step;
+        ip[i] = rand_num;
+      }
+    }
+    else if constexpr (std::is_same<T, float>::value){
+      srand(23);
+      for(int i=0;i<size;i++)
+      {
+        int rand_num = rand() % step;
+        ip[i] = rand_num / step;
+      }
+    }
+    else if constexpr (std::is_same<T, __half>::value){
+      srand(23);
+      for(int i=0;i<size;i++)
+      {
+        int rand_num = rand() % step;
+        ip[i] = __float2half(rand_num / step);
+      }
     }
 }
 //hostRef传入CPU端计算的矩阵加法结果，gpuRef传入GPU端计算的矩阵加法结果
@@ -66,10 +87,11 @@ void matrixMulOnHost(float* A, float* B, float* C, const int m, const int n, con
 	}
 }
 
-__global__ void matrixMulOnGPU(float* A, float* B, float* C, const int n){
+template<typename T, typename U>
+__global__ void matrixMulOnGPU(T* A, T* B, U* C, const int n){
 	unsigned int col = threadIdx.x + blockIdx.x * blockDim.x;
 	unsigned int row = threadIdx.y + blockIdx.y * blockDim.y;
-	float val = 0.0f;
+	U val = 0.0f;
 	if(row < n && col < n){
 		for(int i = 0; i < n; i++){
 			val += A[row*n+i] * B[i*n+col]; 
@@ -78,11 +100,12 @@ __global__ void matrixMulOnGPU(float* A, float* B, float* C, const int n){
 	}
 }
 
-__global__ void matrixMulOnGPU(float* A, float* B, float* C, const int m, const int n, const int k){
+template<typename T, typename U>    
+__global__ void matrixMulOnGPU(T* A, T* B, U* C, const int m, const int n, const int k){
 	// A[m][k], B[k][n], C[m][n];
 	unsigned int col = threadIdx.x + blockIdx.x * blockDim.x;
 	unsigned int row = threadIdx.y + blockIdx.y * blockDim.y;
-	float val = 0.0f;
+	U val = 0.0f;
 	if(row < m && col < n){
 		for(int i = 0; i < k; i++){
 			val += A[row*k+i] * B[i*n+col]; 
@@ -94,9 +117,10 @@ __global__ void matrixMulOnGPU(float* A, float* B, float* C, const int m, const 
 // Tile-based cached Matrix Multiplication
 #define TILE_WIDTH 32
 
-__global__ void matrixMul(float* A, float* B, float* C, int N) {
-    __shared__ float tile_A[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float tile_B[TILE_WIDTH][TILE_WIDTH];
+template <typename T>
+__global__ void matrixMul(T* A, T* B, T* C, int N) {
+    __shared__ T tile_A[TILE_WIDTH][TILE_WIDTH];
+    __shared__ T tile_B[TILE_WIDTH][TILE_WIDTH];
 
     int bx = blockIdx.x;
     int by = blockIdx.y;
@@ -106,7 +130,7 @@ __global__ void matrixMul(float* A, float* B, float* C, int N) {
     int row = by * TILE_WIDTH + ty;
     int col = bx * TILE_WIDTH + tx;
 
-    float Pvalue = 0;
+    T Pvalue = 0;
 
     for (int ph = 0; ph < N / TILE_WIDTH; ++ph) {
         // Load tiles into shared memory
@@ -124,9 +148,10 @@ __global__ void matrixMul(float* A, float* B, float* C, int N) {
     C[row * N + col] = Pvalue;
 }
 
-__global__ void matrixMul(float* A, float* B, float* C, int M, int K, int N) {
-    __shared__ float tile_A[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float tile_B[TILE_WIDTH][TILE_WIDTH];
+template <typename T, typename U>
+__global__ void matrixMul(T* A, T* B, U* C, int M, int K, int N) {
+    __shared__ T tile_A[TILE_WIDTH][TILE_WIDTH];
+    __shared__ T tile_B[TILE_WIDTH][TILE_WIDTH];
 
     int bx = blockIdx.x; 
     int by = blockIdx.y;
@@ -136,7 +161,7 @@ __global__ void matrixMul(float* A, float* B, float* C, int M, int K, int N) {
     int row = by * TILE_WIDTH + ty;
     int col = bx * TILE_WIDTH + tx;
 
-    float Pvalue = 0;
+    U Pvalue = 0;
 
     // Loop over the tiles of the input matrices
     for (int ph = 0; ph < (K + TILE_WIDTH - 1) / TILE_WIDTH; ++ph) {
@@ -200,102 +225,144 @@ __global__ void sumMatrixOnGPU(float *MatA,float *MatB,float *MatC,int nx,int ny
         MatC[idx] = MatA[idx] + MatB[idx];
     }
 }
+
+template <typename T, typename U>
+void mm_cuda(int warmup, int repeat, int m, int n, int k) {
+    std::cout << "-------------------------Matrix Multiplication--------------" << std::endl;
+    long ops = 2L * m * n * k;
+
+    T *h_A, *h_B;
+    T * d_A, *d_B;
+    U *h_C, *d_C;
+    h_A = (T*)malloc(m * k * sizeof(T));
+    h_B = (T*)malloc(k * n * sizeof(T));
+    h_C = (U*)malloc(m * n * sizeof(U));
+    initialData<T>(h_A, m * k, 1000);
+    initialData<T>(h_B, k * n, 1000);
+    CUDA_CHECK(cudaMalloc(&d_A, m * k * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&d_B, k * n * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&d_C, m * n * sizeof(U)));
+    CUDA_CHECK(cudaMemcpy(d_A, h_A, m * k * sizeof(T), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_B, h_B, k * n * sizeof(T), cudaMemcpyHostToDevice));
+    dim3 block(32, 32);
+    dim3 grid((n + block.x - 1) / block.x, (m + block.y - 1) / block.y);
+    double iStart = cpuSecond();
+    for (int i = 0; i < warmup; i++) {
+      matrixMulOnGPU<T, U><<<grid, block>>>(d_A, d_B, d_C, m, n, k);
+    }
+    cudaDeviceSynchronize();
+    double iElaps = cpuSecond() - iStart;
+    printf("Warmup & Kernel: %f sec\n", iElaps);
+
+    cudaEvent_t start, stop;
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    for (int i = 0; i < repeat; i++) {
+      matrixMulOnGPU<T, U><<<grid, block>>>(d_A, d_B, d_C, m, n, k);
+    }
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    printf("Kernel: %f sec\n", iElaps);   
+    float milliseconds = 0;
+    CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+    if constexpr (std::is_same<T, int8_t>::value && std::is_same<U, int32_t>::value){
+      std::cout << "----int8_int8_int32 Time taken: " << milliseconds << " ms" << std::endl;
+      std::cout << "----int8_int8_int32 TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
+    }
+    free(h_A);
+    free(h_B);
+    free(h_C);
+    CUDA_CHECK(cudaEventDestroy(start));
+    CUDA_CHECK(cudaEventDestroy(stop));
+    CUDA_CHECK(cudaFree(d_A));
+    CUDA_CHECK(cudaFree(d_B));
+    CUDA_CHECK(cudaFree(d_C));
+}
+
+template <typename T, typename U>
+void mm_cuda_tile(int warmup, int repeat, int m, int n, int k) {
+    std::cout << "-------------------------Tile-based cached Matrix Multiplication--------------" << std::endl;
+    long ops = 2L * m * n * k;
+
+    T *h_A, *h_B;
+    T * d_A, *d_B;
+    U *h_C, *d_C;
+    h_A = (T*)malloc(m * k * sizeof(T));
+    h_B = (T*)malloc(k * n * sizeof(T));
+    h_C = (U*)malloc(m * n * sizeof(U));
+    initialData<T>(h_A, m * k, 1000);
+    initialData<T>(h_B, k * n, 1000);
+    CUDA_CHECK(cudaMalloc(&d_A, m * k * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&d_B, k * n * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&d_C, m * n * sizeof(U)));
+    CUDA_CHECK(cudaMemcpy(d_A, h_A, m * k * sizeof(T), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_B, h_B, k * n * sizeof(T), cudaMemcpyHostToDevice));
+    dim3 block(TILE_WIDTH, TILE_WIDTH);
+    dim3 grid((n + block.x - 1) / block.x, (m + block.y - 1) / block.y);
+    double iStart = cpuSecond();
+    for (int i = 0; i < warmup; i++) {
+      matrixMul<T, U><<<grid, block>>>(d_A, d_B, d_C, m, n, k);
+    }
+    cudaDeviceSynchronize();
+    double iElaps = cpuSecond() - iStart;
+    printf("Warmup & Kernel: %f sec\n", iElaps);
+
+    cudaEvent_t start, stop;
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    for (int i = 0; i < repeat; i++) {
+      matrixMul<T, U><<<grid, block>>>(d_A, d_B, d_C, m, n, k);
+    }
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    printf("Kernel: %f sec\n", iElaps);   
+    float milliseconds = 0;
+    CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+    if constexpr (std::is_same<T, int8_t>::value && std::is_same<U, int32_t>::value){
+      std::cout << "----int8_int8_int32_tile Time taken: " << milliseconds << " ms" << std::endl;
+      std::cout << "----int8_int8_int32_tile TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
+    }
+    free(h_A);
+    free(h_B);
+    free(h_C);
+    CUDA_CHECK(cudaEventDestroy(start));
+    CUDA_CHECK(cudaEventDestroy(stop));
+    CUDA_CHECK(cudaFree(d_A));
+    CUDA_CHECK(cudaFree(d_B));
+    CUDA_CHECK(cudaFree(d_C));
+}
+
 int main(int argc,char **argv)
 {
+    int bits = 12;
+    int warmup = 30;
+    int repeat = 3000;
+    if(argc >= 2){
+      bits = std::stoi(argv[1]);
+    }
+    if(argc >= 3){
+      warmup = std::stoi(argv[2]);
+      repeat = warmup * 100;
+    }
     int dev = 0;
     cudaDeviceProp deviceProp;
     //CHECK宏定义检查操作是否正常处理
-    CHECK(cudaGetDeviceProperties(&deviceProp,dev));
+    CUDA_CHECK(cudaGetDeviceProperties(&deviceProp,dev));
     printf("Using Device %d: %s\n",dev,deviceProp.name);
-    CHECK(cudaSetDevice(dev));
+    CUDA_CHECK(cudaSetDevice(dev));
     //set up data size of matrix
-    int m = 1<<12; //16384
-    int k = 1<<12; //16384
-    int n = 1<<12; //16384
-		int rand_step = 1000;
-		long compute_time = 2L * m * n * k;
+    int m = 1<<bits; //16384
+    int k = 1<<bits; //16384
+    int n = 1<<bits; //16384
     //int nxy = nx*ny;
     //int nBytes = nxy*sizeof(float);
     printf("Matrix A size: m %d k %d\n",m,k);
     printf("Matrix B size: k %d n %d\n",k,n);
     printf("Matrix C size: m %d n %d\n",m,n);
-    //malloc host memory
-    float *h_A,*h_B,*hostRef,*gpuRef;
-    h_A = (float*)malloc(m * k * sizeof(float));
-    h_B = (float*)malloc(k * n * sizeof(float));
-    hostRef = (float*)malloc(m * n * sizeof(float));
-    gpuRef = (float*)malloc(m * n * sizeof(float));
-    //init data at host side
-    double iStart = cpuSecond();
-    initialData(h_A,m * k, rand_step);
-    initialData(h_B,k * n, rand_step);
-    memset(hostRef,0, m * n * sizeof(float));
-    memset(gpuRef,0, m * n * sizeof(float));
-    double iElaps = cpuSecond() - iStart;
-		std::cout << "time of init is: " << iElaps << std::endl;
-    iStart = cpuSecond();
-    //sumMatrixOnHost(h_A,h_B,hostRef,nx,ny);
-		//assert nx == ny == nz, since the malloc is the nx and ny
-		matrixMulOnHost(h_A, h_B, hostRef, m, n, k);
-    iElaps = cpuSecond() - iStart; //cpu 端耗时
-    std::cout<<"sumMatrixOnHost cost "<<iElaps<<"sec\n";
-		double gflopsCPU = compute_time * 1e-9 / iElaps;
-		std::cout<<"gflops of cpu host is: " << gflopsCPU << std::endl;
-    //malloc device global memory
-    //GPU 申请GPU端空间
-    float *d_MatA,*d_MatB,*d_MatC;
-    cudaMalloc((void**)&d_MatA, m * k * sizeof(float));
-    cudaMalloc((void**)&d_MatB, k * n * sizeof(float));
-    cudaMalloc((void**)&d_MatC, m * n * sizeof(float));
 
-		// transpose the matrix B
-		//float* h_B_trans = (float*)malloc(k * n * sizeof(float));
-		//for(int i = 0; i < n; i++){
-		//	for(int j = 0; j < k; j++){
-		//		h_B_trans[i * k + j] = h_B[j * n + i];
-		//	}
-		//}
-    //transfer data from host to device
-    //数据传输
-    cudaMemcpy(d_MatA,h_A, m*k*sizeof(float),cudaMemcpyHostToDevice);
-    cudaMemcpy(d_MatB,h_B, k*n*sizeof(float),cudaMemcpyHostToDevice);
-    //cudaMemcpy(d_MatB,h_B_trans, k*n*sizeof(float),cudaMemcpyHostToDevice);
-    //invoke kernel at host side
-    int dimx = TILE_WIDTH;
-    int dimy = TILE_WIDTH;
-    //block size = (32,32) 32 = 2^5
-    //也就是每个block中有32*32个线程（结构是二维）
-    dim3 block(dimx,dimy);
-    //grid size = (512,512) 512 = 2^9 = 2^(14-5)
-    //也就是每个grid中有512*512个block （结构是二维）
-    dim3 grid((m+block.x-1)/block.x,((n+block.y-1)/block.y));
-    iStart = cpuSecond();//gpu初始时间
-    //sumMatrixOnGPU<<<grid,block>>>(d_MatA,d_MatB,d_MatC,nx,ny);//以上述配置线程层级结构的方式启动核函数
-		//matrixMulOnGPU<<<grid, block>>>(d_MatA, d_MatB, d_MatC, nx);
-		matrixMulOnGPU<<<grid, block>>>(d_MatA, d_MatB, d_MatC, m, n, k);
-		//matrixMul<<<grid, block>>>(d_MatA, d_MatB, d_MatC, n);
-		//matrixMul<<<grid, block>>>(d_MatA, d_MatB, d_MatC, m, k, n);
-    cudaDeviceSynchronize();
-    iElaps = cpuSecond() - iStart;
-    printf("MulMatrixOnGPU<<<(%d,%d),(%d,%d)>>>elapsed %f sec\n",grid.x,grid.y,block.x,block.y,iElaps);
-		double gflopsGPU = compute_time * 1e-9 / iElaps;
-		std::cout<<"gflops of GPU is: " << gflopsGPU << std::endl;
-    //copy kernel result back to host side
-    //再把GPU计算的结果拷贝会cpu端
-    cudaMemcpy(gpuRef,d_MatC,m*n*sizeof(float),cudaMemcpyDeviceToHost);
-    //check device res
-    checkResult(hostRef,gpuRef, m*n);
-    
-    //释放gpu中申请的内存
-    cudaFree(d_MatA);
-    cudaFree(d_MatB);
-    cudaFree(d_MatC);
-    //释放主机端内存
-    free(h_A);
-    free(h_B);
-    free(hostRef);
-    free(gpuRef);
-    //reset device 
-    cudaDeviceReset();
+    mm_cuda<int8_t, int32_t>(warmup, repeat, m, n, k);
+    mm_cuda_tile<int8_t, int32_t>(warmup, repeat, m, n, k);
     return 0;
 }

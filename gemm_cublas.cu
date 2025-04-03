@@ -12,6 +12,9 @@
 #include <cuda_runtime.h>
 
 #include "cublas_utils.h"
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+
 
 #define CHECK(call)                     \
 {                                       \
@@ -44,7 +47,8 @@ double cpuSecond() {
     return ((double)tp.tv_sec + (double)tp.tv_usec*1.e-6);
 }
 
-void initialData_int8(int8_t *ip,int size)
+template<typename T>
+void initialData_int8(T*ip,int size)
 {
     int max_int8 = 127;
     srand(0);
@@ -53,32 +57,44 @@ void initialData_int8(int8_t *ip,int size)
         ip[i] = rand() % max_int8;
     }
 }
-void initialData(data_type *ip,int size, int step)
+
+template<typename T>
+void initialData(T*ip,int size, int step)
 {
-    //generate different seed for random number
-    // time_t t;
-    // srand((unsigned)time(&t));
     srand(0);
     for(int i=0;i<size;i++)
     {
 				data_type rand_num = rand() % step;
-				ip[i] = rand_num / step / 1000;
+				ip[i] = rand_num / step / 10;
     }
 }
 
-//hostRef传入CPU端计算的矩阵加法结果，gpuRef传入GPU端计算的矩阵加法结果
-//对比争取输出"Arrats match"
-void checkResult(data_type *hostRef,data_type *gpuRef,const int N)
+template<typename T>
+void initialData_fp16(T*ip,int size, int step)
 {
-    //double epsilon = 1.0E-8;
-    //double epsilon = 1.0E-5;
+    step = 10;
+    srand(0);
+    for(int i=0;i<size;i++)
+    {
+				data_type rand_num = rand() % step;
+        float f = rand_num;
+        ip[i] = __float2half(f);
+        if(i < 20){
+          printf("ip[%d] = %f\n", i, __half2float(ip[i]));
+        }
+    }
+}
+
+
+template<typename X>
+void checkResult(X* hostRef, X* gpuRef,const int N)
+{
+  if constexpr (std::is_same<X, float>::value){
     double epsilon = 1.0E-2;
-		//double rate = 0.2;
     bool match=1;
     for(int i=0;i<N;i++)
     {
         if(abs(hostRef[i]-gpuRef[i])>epsilon)
-        //if(abs(hostRef[i]-gpuRef[i]) > rate * abs(hostRef[i]))
         {
             match=0;
             printf("Arrays do not match");
@@ -88,12 +104,62 @@ void checkResult(data_type *hostRef,data_type *gpuRef,const int N)
     }
     if(match)
       std::cout<<"Arrats match"<<std::endl;
+  }
+  else if constexpr (std::is_same<X, int32_t>::value){
+    bool match = 1;
+    for(int i=0;i<N;i++){
+      if(hostRef[i] != gpuRef[i]){
+        printf("Arrays do not match");
+        printf("host %d gpu %d at current %d\n", hostRef[i], gpuRef[i], i);
+        match = 0;
+        break;
+      }
+    }
+    if(match)
+      std::cout<<"Arrats match"<<std::endl;
+  }
+}
+
+// template<>
+// void checkResult<__half>(__half*, __half*, int) = delete;
+
+void checkResult_half(__half* hostRef, __half* gpuRef,const int N)
+{
+  float epsilon = 1.0E-2;
+  bool match=1;
+  for(int i=0;i<N;i++)
+  {
+    float diff = abs(__half2float(hostRef[i])-__half2float(gpuRef[i]));
+    if(diff > epsilon)
+    {
+      match=0;
+          printf("Arrays do not match");
+          printf("host %5.6f gpu %5.6f at current %d\n",__half2float(hostRef[i]),__half2float(gpuRef[i]),i);
+          break;
+      }
+  }
+  if(match)
+    std::cout<<"Arrats match"<<std::endl;
 }
 
 double get_sec(){
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
 	return (double)tv.tv_sec + (double)tv.tv_usec / 1000000;
+}
+
+template<typename T, typename U>
+__global__ void matrixMulOnGPU(T* A, T* B, U* C, const int m, const int n, const int k){
+	// A[m][k], B[k][n], C[m][n];
+	unsigned int col = threadIdx.x + blockIdx.x * blockDim.x;
+	unsigned int row = threadIdx.y + blockIdx.y * blockDim.y;
+	U val = 0.0f;
+	if(row < m && col < n){
+		for(int i = 0; i < k; i++){
+			val += A[row*k+i] * B[i*n+col]; 
+		}
+		C[row*n+col] = val;
+	}
 }
 
 template<typename T, typename U>
@@ -108,29 +174,53 @@ void matrixMulOnHost(T * A, T* B, U * C, const int m, const int n, const int k){
 	}
 }
 
-void mm_int8_int8_fp32(int warmup, int repeat, const int m, const int n, const int k){
-  cout << "--------------------------------mm_int8_int8_fp32--------------------------------" << endl;
+template<typename T, typename U>
+void mm_cublas(int warmup, int repeat, const int m, const int n, const int k){
+  if(std::is_same<T, int8_t>::value && std::is_same<U, float>::value){
+    cout << "--------------------------------mm_cublas_int8_int8_float--------------------------------" << endl;
+  }
+  else if(std::is_same<T, float>::value && std::is_same<U, float>::value){
+    cout << "--------------------------------mm_cublas_float_float_float--------------------------------" << endl;
+  }
+  else if(std::is_same<T, __half>::value && std::is_same<U, __half>::value){
+    cout << "--------------------------------mm_cublas_fp16_fp16_fp16--------------------------------" << endl;
+  }
+  else if(std::is_same<T, int8_t>::value && std::is_same<U, int32_t>::value){
+    cout << "--------------------------------mm_cublas_int8_int8_int32--------------------------------" << endl;
+  }
   long ops = 2L * m * n * k;
   cudaStream_t stream = NULL;
   CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
 
-  int8_t *h_A = nullptr;
-  int8_t *h_B = nullptr;
-  float *h_C = nullptr;
-  float *h_C_ref = nullptr;
+  T *h_A = nullptr;
+  T *h_B = nullptr;
+  U *h_C = nullptr;
+  U *h_C_ref = nullptr;
 
-  h_A = (int8_t *)malloc(m * k * sizeof(int8_t));
-  h_B = (int8_t *)malloc(k * n * sizeof(int8_t));
-  h_C = (float *)malloc(m * n * sizeof(float));
-  h_C_ref = (float *)malloc(m * n * sizeof(float));
-  initialData_int8(h_A, m * k);
-  initialData_int8(h_B, k * n);
-  memset(h_C_ref, 0, m * n * sizeof(float));
-  matrixMulOnHost<int8_t, float>(h_A, h_B, h_C_ref, m, n, k);
+  h_A = (T *)malloc(m * k * sizeof(T));
+  h_B = (T *)malloc(k * n * sizeof(T));
+  h_C = (U *)malloc(m * n * sizeof(U));
 
-  int8_t *d_A = nullptr;
-  int8_t *d_B = nullptr;
-  float *d_C = nullptr;
+  h_C_ref = (U *)malloc(m * n * sizeof(U));
+  if constexpr(std::is_same<T, int8_t>::value){
+    initialData_int8<T>(h_A, m * k);
+    initialData_int8<T>(h_B, k * n);
+  }
+  else if constexpr(std::is_same<T, float>::value){
+    initialData<T>(h_A, m * k, 1000);
+    initialData<T>(h_B, k * n, 1000);
+  }
+  else if constexpr(std::is_same<T, __half>::value){
+    initialData_fp16<T>(h_A, m * k, 1000);
+    initialData_fp16<T>(h_B, k * n, 1000);
+  }
+  // memset(h_C_ref, 0, m * n * sizeof(U));
+  // matrixMulOnHost<T, U>(h_A, h_B, h_C_ref, m, n, k);
+
+  T *d_A = nullptr;
+  T *d_B = nullptr;
+  U *d_C = nullptr;
+  U *d_C_ref = nullptr;
 
   cublasHandle_t cublasH = NULL;
   CUBLAS_CHECK(cublasCreate(&cublasH));
@@ -139,50 +229,174 @@ void mm_int8_int8_fp32(int warmup, int repeat, const int m, const int n, const i
   const data_type alpha = 1.0;
   const data_type beta = 0.0;
 
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(int8_t) * m * k));
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_B), sizeof(int8_t) * k * n));
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_C), sizeof(float) * m * n));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(T) * m * k));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_B), sizeof(T) * k * n));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_C), sizeof(U) * m * n));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_C_ref), sizeof(U) * m * n));
 
-  CUDA_CHECK(cudaMemcpyAsync(d_A, h_A, sizeof(int8_t) * m * k, cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(d_B, h_B, sizeof(int8_t) * k * n, cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(d_A, h_A, sizeof(T) * m * k, cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(d_B, h_B, sizeof(T) * k * n, cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  dim3 block(32, 32);
+  dim3 grid((n + block.x - 1) / block.x, (m + block.y - 1) / block.y);
+  matrixMulOnGPU<T, U><<<grid, block, 0, stream>>>(d_A, d_B, d_C_ref, m, n, k);
+  CUDA_CHECK(cudaMemcpyAsync(h_C_ref, d_C_ref, sizeof(U) * m * n, cudaMemcpyDeviceToHost, stream));
+  if constexpr(std::is_same<T, int8_t>::value && std::is_same<U, float>::value){
+    CHECK_CUBLAS(cublasGemmEx(
+      cublasH,
+      CUBLAS_OP_N,
+      CUBLAS_OP_N,
+      m, n, k,
+      &alpha, 
+      d_A, CUDA_R_8I, m,         // A (INT8 matrix)
+      d_B, CUDA_R_8I, k,         // B (INT8 matrix)
+      &beta,
+      d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
+      CUDA_R_32F,                // The compute type is FP32
+      CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+  }
+  else if constexpr(std::is_same<T, int8_t>::value && std::is_same<U, int32_t>::value){
+    CHECK_CUBLAS(cublasGemmEx(
+      cublasH,
+      CUBLAS_OP_N,
+      CUBLAS_OP_N,
+      m, n, k,
+      &alpha, 
+      d_A, CUDA_R_8I, m,         // A (INT8 matrix)
+      d_B, CUDA_R_8I, k,         // B (INT8 matrix)
+      &beta,
+      d_C, CUDA_R_32I, m,        // C (INT32 output matrix)
+      CUDA_R_32I,                // The compute type is int32
+      CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+  }
+  else if constexpr(std::is_same<T, float>::value && std::is_same<U, float>::value){
+    CHECK_CUBLAS(cublasGemmEx(
+      cublasH,
+      CUBLAS_OP_N,
+      CUBLAS_OP_N,
+      m, n, k,
+      &alpha, 
+      d_A, CUDA_R_32F, m,         // A (FP32 matrix)
+      d_B, CUDA_R_32F, k,         // B (FP32 matrix)
+      &beta,
+      d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
+      CUDA_R_32F,                // The compute type is FP32
+      CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+  }
+  else if constexpr(std::is_same<T, __half>::value && std::is_same<U, __half>::value){
+    // matrixMulOnGPU<__half, __half><<<32, 32, 0, stream>>>(d_A, d_B, d_C, m, n, k);
+    CHECK_CUBLAS(cublasGemmEx(
+      cublasH,
+      CUBLAS_OP_N,
+      CUBLAS_OP_N,
+      m, n, k,
+      &alpha, 
+      d_A, CUDA_R_16F, m,         // A (FP16 matrix)
+      d_B, CUDA_R_16F, k,         // B (FP16 matrix)
+      &beta,
+      d_C, CUDA_R_16F, m,        // C (FP16 output matrix)
+      CUDA_R_16F,                // The compute type is FP16
+      CUBLAS_GEMM_DEFAULT));     // Use default algorithm
 
-  CHECK_CUBLAS(cublasGemmEx(
-    cublasH,
-    CUBLAS_OP_N,
-    CUBLAS_OP_N,
-    m, n, k,
-    &alpha, d_A, CUDA_R_8I, m,  // A (INT8 matrix)
-    d_B, CUDA_R_8I, k,         // B (INT8 matrix)
-    &beta,
-    d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
-    CUDA_R_32F,                // The compute type is FP32
-    CUBLAS_GEMM_DEFAULT));     // Use default algorithm
-
+  }
   CUDA_CHECK(cudaStreamSynchronize(stream));
   CUDA_CHECK(cudaDeviceSynchronize());
-  CUDA_CHECK(cudaMemcpyAsync(h_C, d_C, sizeof(float) * m * n, cudaMemcpyDeviceToHost, stream));
+  CUDA_CHECK(cudaMemcpyAsync(h_C, d_C, sizeof(U) * m * n, cudaMemcpyDeviceToHost, stream));
   CUDA_CHECK(cudaStreamSynchronize(stream));
   CUDA_CHECK(cudaDeviceSynchronize());
 
-  checkResult(h_C_ref, h_C, m * n);
+  if constexpr (std::is_same<U, __half>::value){
+    checkResult_half(h_C_ref, h_C, m * n);
+    for(int i = 0; i < m * n; i++){
+      printf("h_C_ref[%d] = %f, h_C[%d] = %f\n", i, __half2float(h_C_ref[i]), i, __half2float(h_C[i]));
+      if(i > 20) break;
+    }
+  }
+  else if constexpr (std::is_same<U, float>::value){
+    checkResult<U>(h_C_ref, h_C, m * n);
+    for(int i = 0; i < m * n; i++){
+      printf("h_C_ref[%d] = %f, h_C[%d] = %f\n", i, h_C_ref[i], i, h_C[i]);
+      if(i > 20) break;
+    }
+  }
+  else if constexpr (std::is_same<U, int32_t>::value){
+    checkResult<U>(h_C_ref, h_C, m * n);
+    for(int i = 0; i < m * n; i++){
+      printf("h_C_ref[%d] = %d, h_C[%d] = %d\n", i, h_C_ref[i], i, h_C[i]);
+      if(i > 20) break;
+    }
+  }
 
   for(int i = 0; i < warmup; i++){
-    CHECK_CUBLAS(cublasGemmEx(
+    if constexpr (std::is_same<T, int8_t>::value && std::is_same<U, float>::value){
+      CHECK_CUBLAS(cublasGemmEx(
         cublasH,
-        CUBLAS_OP_N, 
-        CUBLAS_OP_N, 
-        m, n, k, 
-        &alpha, d_A, CUDA_R_8I, m, 
-        d_B, CUDA_R_8I, k, 
-        &beta, 
-        d_C, CUDA_R_32F, m, 
-        CUDA_R_32F, 
-        CUBLAS_GEMM_DEFAULT));
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        m, n, k,
+        &alpha, 
+        d_A, CUDA_R_8I, m,         // A (INT8 matrix)
+        d_B, CUDA_R_8I, k,         // B (INT8 matrix)
+        &beta,
+        d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
+        CUDA_R_32F,                // The compute type is FP32
+        CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+    }
+    else if constexpr (std::is_same<T, int8_t>::value && std::is_same<U, int32_t>::value){
+      CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        m, n, k,
+        &alpha, 
+        d_A, CUDA_R_8I, m,         // A (INT8 matrix)
+        d_B, CUDA_R_8I, k,         // B (INT8 matrix)
+        &beta,
+        d_C, CUDA_R_32I, m,        // C (INT32 output matrix)
+        CUDA_R_32I,                // The compute type is int32
+        CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+    }
+    else if constexpr (std::is_same<T, float>::value && std::is_same<U, float>::value){
+      CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        m, n, k,
+        &alpha, 
+        d_A, CUDA_R_32F, m,         // A (FP32 matrix)
+        d_B, CUDA_R_32F, k,         // B (FP32 matrix)
+        &beta,
+        d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
+        CUDA_R_32F,                // The compute type is FP32
+        CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+    }
+    else if constexpr (std::is_same<T, __half>::value && std::is_same<U, __half>::value){
+      CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        m, n, k,
+        &alpha, 
+        d_A, CUDA_R_16F, m,         // A (FP16 matrix)
+        d_B, CUDA_R_16F, k,         // B (FP16 matrix)
+        &beta,
+        d_C, CUDA_R_16F, m,        // C (FP16 output matrix)
+        CUDA_R_16F,                // The compute type is FP16
+        CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+    }
   }
 
   CUDA_CHECK(cudaStreamSynchronize(stream));
   CUDA_CHECK(cudaDeviceSynchronize());
-  std::cout << "----int8_int8_fp32 warmup done" << std::endl;
+  if constexpr (std::is_same<T, int8_t>::value && std::is_same<U, float>::value){
+    std::cout << "----int8_int8_fp32 warmup done" << std::endl;
+  }
+  else if constexpr (std::is_same<T, float>::value && std::is_same<U, float>::value){
+    std::cout << "----fp32_fp32_fp32 warmup done" << std::endl;
+  }
+  else if constexpr (std::is_same<T, __half>::value && std::is_same<U, __half>::value){
+    std::cout << "----fp16_fp16_fp16 warmup done" << std::endl;
+  }
 
   cudaEvent_t start, stop;
   CUDA_CHECK(cudaEventCreate(&start));
@@ -190,27 +404,85 @@ void mm_int8_int8_fp32(int warmup, int repeat, const int m, const int n, const i
   CUDA_CHECK(cudaEventRecord(start, stream));
 
   for(int i = 0; i < repeat; i++){
-    CHECK_CUBLAS(cublasGemmEx(
+    if constexpr (std::is_same<T, int8_t>::value && std::is_same<U, float>::value){
+      CHECK_CUBLAS(cublasGemmEx(
         cublasH,
         CUBLAS_OP_N,
         CUBLAS_OP_N,
         m, n, k,
-        &alpha, d_A, CUDA_R_8I, m,
-        d_B, CUDA_R_8I, k,
+        &alpha, 
+        d_A, CUDA_R_8I, m,         // A (INT8 matrix)
+        d_B, CUDA_R_8I, k,         // B (INT8 matrix)
         &beta,
-        d_C, CUDA_R_32F, m,
-        CUDA_R_32F,
-        CUBLAS_GEMM_DEFAULT));
+        d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
+        CUDA_R_32F,                // The compute type is FP32
+        CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+    }
+    else if constexpr (std::is_same<T, int8_t>::value && std::is_same<U, int32_t>::value){
+      CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        m, n, k,
+        &alpha, 
+        d_A, CUDA_R_8I, m,         // A (INT8 matrix)
+        d_B, CUDA_R_8I, k,         // B (INT8 matrix)
+        &beta,
+        d_C, CUDA_R_32I, m,        // C (INT32 output matrix)
+        CUDA_R_32I,                // The compute type is int32
+        CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+    }
+    else if constexpr (std::is_same<T, float>::value && std::is_same<U, float>::value){
+      CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        m, n, k,
+        &alpha, 
+        d_A, CUDA_R_32F, m,         // A (FP32 matrix)
+        d_B, CUDA_R_32F, k,         // B (FP32 matrix)
+        &beta,
+        d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
+        CUDA_R_32F,                // The compute type is FP32
+        CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+    }
+    else if constexpr (std::is_same<T, __half>::value && std::is_same<U, __half>::value){
+      CHECK_CUBLAS(cublasGemmEx(
+        cublasH,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        m, n, k,
+        &alpha, 
+        d_A, CUDA_R_16F, m,         // A (fp16 matrix)
+        d_B, CUDA_R_16F, k,         // B (fp16 matrix)
+        &beta,
+        d_C, CUDA_R_16F, m,        // C (fp16 output matrix)
+        CUDA_R_16F,                // The compute type is FP16
+        CUBLAS_GEMM_DEFAULT));     // Use default algorithm
+    }
   }
 
+  CUDA_CHECK(cudaStreamSynchronize(stream));
   CUDA_CHECK(cudaEventRecord(stop, stream));
   CUDA_CHECK(cudaEventSynchronize(stop));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
   float milliseconds = 0;
   CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
-  std::cout << "----int8_int8_fp32 Time taken: " << milliseconds << " ms" << std::endl;
-  std::cout << "----int8_int8_fp32 TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
-
+  if constexpr (std::is_same<T, int8_t>::value && std::is_same<U, float>::value){
+    std::cout << "----int8_int8_fp32 Time taken: " << milliseconds << " ms" << std::endl;
+    std::cout << "----int8_int8_fp32 TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
+  }
+  else if constexpr (std::is_same<T, int8_t>::value && std::is_same<U, int32_t>::value){
+    std::cout << "----int8_int8_int32 Time taken: " << milliseconds << " ms" << std::endl;
+    std::cout << "----int8_int8_int32 TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
+  }
+  else if constexpr (std::is_same<T, float>::value && std::is_same<U, float>::value){
+    std::cout << "----fp32_fp32_fp32 Time taken: " << milliseconds << " ms" << std::endl;
+    std::cout << "----fp32_fp32_fp32 TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
+  }
+  else if constexpr (std::is_same<T, __half>::value && std::is_same<U, __half>::value){
+    std::cout << "----fp16_fp16_fp16 Time taken: " << milliseconds << " ms" << std::endl;
+    std::cout << "----fp16_fp16_fp16 TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
+  }
 
   free(h_A);
   free(h_B);
@@ -224,133 +496,24 @@ void mm_int8_int8_fp32(int warmup, int repeat, const int m, const int n, const i
   CUBLAS_CHECK(cublasDestroy(cublasH));
   CUDA_CHECK(cudaStreamDestroy(stream));
   CUDA_CHECK(cudaDeviceReset());
+  cout << endl;
 }
-
-void mm_fp32_fp32_fp32(int warmup, int repeat, const int m, const int n, const int k){
-  cout << "--------------------------------mm_fp32_fp32_fp32--------------------------------" << endl;
-  long ops = 2L * m * n * k;
-  cudaStream_t stream = NULL;
-  CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-
-  float *h_A = nullptr;
-  float *h_B = nullptr;
-  float *h_C = nullptr;
-  float *h_C_ref = nullptr;
-
-  h_A = (float *)malloc(m * k * sizeof(float));
-  h_B = (float *)malloc(k * n * sizeof(float));
-  h_C = (float *)malloc(m * n * sizeof(float));
-  h_C_ref = (float *)malloc(m * n * sizeof(float));
-  initialData(h_A, m * k, 1000);
-  initialData(h_B, k * n, 1000);
-  memset(h_C_ref, 0, m * n * sizeof(float));
-  matrixMulOnHost<float, float>(h_A, h_B, h_C_ref, m, n, k);
-
-  float *d_A = nullptr;
-  float *d_B = nullptr;
-  float *d_C = nullptr;
-
-  cublasHandle_t cublasH = NULL;
-  CUBLAS_CHECK(cublasCreate(&cublasH));
-  CUBLAS_CHECK(cublasSetStream(cublasH, stream));
-
-  const data_type alpha = 1.0;
-  const data_type beta = 0.0;
-
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(float) * m * k));
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_B), sizeof(float) * k * n));
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_C), sizeof(float) * m * n));
-
-  CUDA_CHECK(cudaMemcpyAsync(d_A, h_A, sizeof(float) * m * k, cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(d_B, h_B, sizeof(float) * k * n, cudaMemcpyHostToDevice, stream));
-
-  CHECK_CUBLAS(cublasGemmEx(
-    cublasH,
-    CUBLAS_OP_N,
-    CUBLAS_OP_N,
-    m, n, k,
-    &alpha, d_A, CUDA_R_32F, m,  // A (FP32 matrix)
-    d_B, CUDA_R_32F, k,         // B (FP32 matrix)
-    &beta,
-    d_C, CUDA_R_32F, m,        // C (FP32 output matrix)
-    CUDA_R_32F,                // The compute type is FP32
-    CUBLAS_GEMM_DEFAULT));     // Use default algorithm
-
-  CUDA_CHECK(cudaStreamSynchronize(stream));
-  CUDA_CHECK(cudaDeviceSynchronize());
-  CUDA_CHECK(cudaMemcpyAsync(h_C, d_C, sizeof(float) * m * n, cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
-  CUDA_CHECK(cudaDeviceSynchronize());
-
-  checkResult(h_C_ref, h_C, m * n);
-
-  for(int i = 0; i < warmup; i++){
-    CHECK_CUBLAS(cublasGemmEx(
-        cublasH,
-        CUBLAS_OP_N, 
-        CUBLAS_OP_N, 
-        m, n, k, 
-        &alpha, d_A, CUDA_R_32F, m, 
-        d_B, CUDA_R_32F, k, 
-        &beta, 
-        d_C, CUDA_R_32F, m, 
-        CUDA_R_32F, 
-        CUBLAS_GEMM_DEFAULT));
-  }
-
-  CUDA_CHECK(cudaStreamSynchronize(stream));
-  CUDA_CHECK(cudaDeviceSynchronize());
-  std::cout << "----fp32_fp32_fp32 warmup done" << std::endl;
-
-  cudaEvent_t start, stop;
-  CUDA_CHECK(cudaEventCreate(&start));
-  CUDA_CHECK(cudaEventCreate(&stop));
-  CUDA_CHECK(cudaEventRecord(start, stream));
-
-  for(int i = 0; i < repeat; i++){
-    CHECK_CUBLAS(cublasGemmEx(
-        cublasH,
-        CUBLAS_OP_N,
-        CUBLAS_OP_N,
-        m, n, k,
-        &alpha, d_A, CUDA_R_32F, m,
-        d_B, CUDA_R_32F, k,
-        &beta,
-        d_C, CUDA_R_32F, m,
-        CUDA_R_32F,
-        CUBLAS_GEMM_DEFAULT));
-  }
-
-  CUDA_CHECK(cudaEventRecord(stop, stream));
-  CUDA_CHECK(cudaEventSynchronize(stop));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
-  float milliseconds = 0;
-  CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
-  std::cout << "----fp32_fp32_fp32 Time taken: " << milliseconds << " ms" << std::endl;
-  std::cout << "----fp32_fp32_fp32 TFlops: " << (double)ops * 1e-12 / (milliseconds / repeat / 1000) << std::endl;
-
-
-  free(h_A);
-  free(h_B);
-  free(h_C);
-  free(h_C_ref);
-
-  CUDA_CHECK(cudaFree(d_A));
-  CUDA_CHECK(cudaFree(d_B));
-  CUDA_CHECK(cudaFree(d_C));
-
-  CUBLAS_CHECK(cublasDestroy(cublasH));
-  CUDA_CHECK(cudaStreamDestroy(stream));
-  CUDA_CHECK(cudaDeviceReset());
-}
-
 
 int main(int argc, char *argv[]) {
   int dev = 0;
   cudaDeviceProp deviceProp;
   int bits = 10;
+  int warmup = 30;
+  int repeat = 3000;
   if(argc >= 2){
     bits = std::stoi(argv[1]);
+  }
+  if(argc >= 3){
+    warmup = std::stoi(argv[2]);
+    repeat = warmup * 100;
+  }
+  if(argc >= 4){
+    repeat = std::stoi(argv[3]);
   }
   //CHECK宏定义检查操作是否正常处理
   CHECK(cudaGetDeviceProperties(&deviceProp,dev));
@@ -360,8 +523,10 @@ int main(int argc, char *argv[]) {
   int m = 1<<bits; //16384
   int k = 1<<bits; //16384
   int n = 1<<bits; //16384
-  mm_int8_int8_fp32(10, 300, m, n, k);
-  mm_fp32_fp32_fp32(10, 300, m, n, k);
+  mm_cublas<int8_t, float>(warmup, repeat, m, n, k);
+  mm_cublas<float, float>(warmup, repeat, m, n, k);
+  mm_cublas<__half, __half>(warmup, repeat, m, n, k);
+  mm_cublas<int8_t, int32_t>(warmup, repeat, m, n, k);
 	return 0;
 
 }
