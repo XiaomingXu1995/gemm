@@ -1,8 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
-#include <vector>
 #include <iostream>
-//#include <bits/stdc++.h>
 #include <assert.h>
 #include <immintrin.h>
 
@@ -251,6 +249,7 @@ void mm_cublas(int warmup, int repeat, const int m, const int n, const int k){
   cudaEvent_t start, stop;
   CUDA_CHECK(cudaEventCreate(&start));
   CUDA_CHECK(cudaEventCreate(&stop));
+  CUDA_CHECK(cudaStreamSynchronize(stream));
   CUDA_CHECK(cudaEventRecord(start, stream));
 
   for(int i = 0; i < repeat; i++){
@@ -326,7 +325,6 @@ void mm_cublas(int warmup, int repeat, const int m, const int n, const int k){
     }
   }
 
-  CUDA_CHECK(cudaStreamSynchronize(stream));
   CUDA_CHECK(cudaEventRecord(stop, stream));
   CUDA_CHECK(cudaEventSynchronize(stop));
   float milliseconds = 0;
@@ -371,14 +369,14 @@ int main(int argc, char *argv[]) {
   int dev = 0;
   cudaDeviceProp deviceProp;
   int bits = 10;
-  int warmup = 30;
-  int repeat = 300;
+  int warmup = 10;
+  int repeat = 100;
   if(argc >= 2){
     bits = std::stoi(argv[1]);
   }
   if(argc >= 3){
     warmup = std::stoi(argv[2]);
-    repeat = warmup * 100;
+    repeat = warmup * 10;
   }
   if(argc >= 4){
     repeat = std::stoi(argv[3]);
@@ -391,6 +389,7 @@ int main(int argc, char *argv[]) {
   int m = 1<<bits; //16384
   int k = 1<<bits; //16384
   int n = 1<<bits; //16384
+  printf("============m: %d, n: %d, k: %d============\n", m, n, k);
   mm_cublas<int8_t, float>(warmup, repeat, m, n, k);
   mm_cublas<float, float>(warmup, repeat, m, n, k);
   mm_cublas<int8_t, int32_t>(warmup, repeat, m, n, k);

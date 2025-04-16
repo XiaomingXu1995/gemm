@@ -5,3 +5,4 @@ exe_*
 gemm_cqx
 build/*
 a.out
+*.ncu-rep
