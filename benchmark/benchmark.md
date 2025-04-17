@@ -14,7 +14,6 @@ mm_mma_float<96, 32, 64, 6, 4>(warmup, repeat, m, n, k);
 
 之前的实现，有些问题，开的accum_c的数据过多，导致性能变慢。但是现在的操作，有时候，结果不稳定，这个需要明确一下。
 
----
 第二天对于结果不正确的问题进一步明确：
 * 结果不正确的具体表现为：TFLOPS极高，kernel直接跳过；输出结果矩阵都为0.
 * 因此说明kennel没有执行。
@@ -74,4 +73,58 @@ ptxas info    : Used 33 registers, 388 bytes cmem[0]
 上边两个问题：kernel太慢和结果不对，分别通过上边两个log以及分析得到了明确的答案。
 * 结果太慢：使用了位于global memory上的stack
 * 结果不对：寄存器数目超出限制，kernel没有执行
+
+### tile 参数与TFLOPS的关系
+
+表格中的各项内容：
+矩阵A 和矩阵 B 在kernel中 分配的 shared memory 为： A[block_m][block_k]，B[block_k][block_n].
+
+kernel thread 分配 blockDim(block_n / tile_col, block_m / tile_row)。
+
+shm 为shared memory占用大小，cmem为kernel中const 值占用大小。
+
+shm, cmem, register, stack frame, spill stores, spill loads的内容都是由编译时加`-Xptxas=v`来获取的。
+
+TFLOPS 是由计时函数计算得来。
+
+datatype_A = int8_t, datatype_B = int8_t, datatype_C = int32_t。
+
+矩阵维度为m=2048, n= 2048, k=2048. 当m n k 都为4096时，结果差不太多，都为1024时，TFLOPS相对较低。
+
+
+但是实际测试的时候，m n k 都为4096时， <256, 128, 128, 16 8> 的TFLOPS为28.284， <128, 256, 128, 8, 16>的TFLOPS为30.618。
+
+| block_m | block_n | block_k | tile_row| tile_col |TFLOPS|blockDim|gridDim|shm|cmem|register|stack frame| spill stores| spill loads|
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+|256|128|128|16|8|33.337| (16, 16) | (16, 8)|49152B|388B|254,| 0| 0| 0|
+|128|256|128|8|16|31.025| (16, 16) | (8, 16)|49152B|388B|255, 96B cumulative stack size| 96B| 284B| 196B|
+|128|128|128|16|8|28.078| (16, 8) | (16, 16)|32768B|388B|255| 0| 0| 0|
+|128|128|128|8|16|25.791| (8, 16) | (16, 16)|32768B|388B|255, 96B cumulative stack size| 96B| 284B| 196B|
+
+具体的编译log：
+```txt
+nvcc -Xptxas=-v -lineinfo -O3 -g gemm_shared_memory.cu -o build/gemm_shared_memory -std=c++17 -gencode arch=compute_89,code=sm_89
+ptxas info    : 963 bytes gmem, 80 bytes cmem[4]
+ptxas info    : Compiling entry function '_Z8gemm_mmaILi128ELi128ELi128ELi8ELi16EEvPaS0_Piiii' for 'sm_89'
+ptxas info    : Function properties for _Z8gemm_mmaILi128ELi128ELi128ELi8ELi16EEvPaS0_Piiii
+    96 bytes stack frame, 284 bytes spill stores, 196 bytes spill loads
+ptxas info    : Used 255 registers, 96 bytes cumulative stack size, 32768 bytes smem, 388 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z8gemm_mmaILi128ELi128ELi128ELi16ELi8EEvPaS0_Piiii' for 'sm_89'
+ptxas info    : Function properties for _Z8gemm_mmaILi128ELi128ELi128ELi16ELi8EEvPaS0_Piiii
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 255 registers, 32768 bytes smem, 388 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z8gemm_mmaILi128ELi256ELi128ELi8ELi16EEvPaS0_Piiii' for 'sm_89'
+ptxas info    : Function properties for _Z8gemm_mmaILi128ELi256ELi128ELi8ELi16EEvPaS0_Piiii
+    96 bytes stack frame, 284 bytes spill stores, 196 bytes spill loads
+ptxas info    : Used 255 registers, 96 bytes cumulative stack size, 49152 bytes smem, 388 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z8gemm_mmaILi256ELi128ELi128ELi16ELi8EEvPaS0_Piiii' for 'sm_89'
+ptxas info    : Function properties for _Z8gemm_mmaILi256ELi128ELi128ELi16ELi8EEvPaS0_Piiii
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 254 registers, 49152 bytes smem, 388 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z14matrixMulOnGPUIaiEvPT_S1_PT0_iii' for 'sm_89'
+ptxas info    : Function properties for _Z14matrixMulOnGPUIaiEvPT_S1_PT0_iii
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 33 registers, 388 bytes cmem[0]
+```
+
 

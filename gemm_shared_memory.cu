@@ -76,6 +76,7 @@ void mm_mma_int8(int warmup, int repeat, int m, int n, int k){
   cudaEventSynchronize(stop);
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
+  printf("print the result of tile: %d %d %d %d %d\n", BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, TILES_COMPUTE_ROW, TILES_COMPUTE_COL);
   printf("mma time: %f ms\n", milliseconds / 1000 / repeat);
   printf("mma gflops: %f\n", compute_gflops(m, n, k, milliseconds / 1000 / repeat));
   printf("mma tflops: %f\n", compute_tflops(m, n, k, milliseconds / 1000 / repeat));
@@ -141,6 +142,7 @@ void mm_mma_float(int warmup, int repeat, int m, int n, int k){
   cudaEventSynchronize(stop);
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
+  printf("print the result of tile: %d %d %d %d %d\n", BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, TILES_COMPUTE_ROW, TILES_COMPUTE_COL);
   printf("float mma time: %f ms\n", milliseconds / 1000 / repeat);
   printf("float mma gflops: %f\n", compute_gflops(m, n, k, milliseconds / 1000 / repeat));
   printf("float mma tflops: %f\n", compute_tflops(m, n, k, milliseconds / 1000 / repeat));
@@ -185,7 +187,21 @@ int main(int argc, char ** argv){
 
   // allocate memory
   //mm_mma_int8<64, 64, 128, 4, 4>(warmup, repeat, m, n, k);
-  mm_mma_int8<128, 64, 128, 8, 4>(warmup, repeat, m, n, k);
+  printf("============tile: 256 128 128 8 16============\n");
+  mm_mma_int8<256, 128, 128, 16, 8>(warmup, repeat, m, n, k);
+  printf("============tile: 128 256 128 8 16============\n");
+  mm_mma_int8<128, 256, 128, 8, 16>(warmup, repeat, m, n, k);
+  printf("============tile: 128 128 128 16 8============\n");
+  mm_mma_int8<128, 128, 128, 16, 8>(warmup, repeat, m, n, k);
+  printf("============tile: 128 128 128 8 16============\n");
+  mm_mma_int8<128, 128, 128, 8, 16>(warmup, repeat, m, n, k);
+  // printf("============tile: 64 32 128 4 2============\n");
+  // mm_mma_int8<64, 32, 128, 4, 2>(warmup, repeat, m, n, k);
+  // printf("============tile: 32 32 128 2 2============\n");
+  // mm_mma_int8<32, 32, 128, 2, 2>(warmup, repeat, m, n, k);
+  // printf("============tile: 16 16 128 1 1============\n");
+  // mm_mma_int8<16, 16, 128, 1, 1>(warmup, repeat, m, n, k);
+
   //mm_mma_float<96, 32, 64, 6, 4>(warmup, repeat, m, n, k);
   //mm_mma_float<64, 64, 64, 4, 4>(warmup, repeat, m, n, k);
 
