@@ -187,20 +187,20 @@ int main(int argc, char ** argv){
 
   // allocate memory
   //mm_mma_int8<64, 64, 128, 4, 4>(warmup, repeat, m, n, k);
-  printf("============tile: 256 128 128 8 16============\n");
-  mm_mma_int8<256, 128, 128, 16, 8>(warmup, repeat, m, n, k);
-  printf("============tile: 128 256 128 8 16============\n");
-  mm_mma_int8<128, 256, 128, 8, 16>(warmup, repeat, m, n, k);
-  printf("============tile: 128 128 128 16 8============\n");
-  mm_mma_int8<128, 128, 128, 16, 8>(warmup, repeat, m, n, k);
-  printf("============tile: 128 128 128 8 16============\n");
-  mm_mma_int8<128, 128, 128, 8, 16>(warmup, repeat, m, n, k);
-  // printf("============tile: 64 32 128 4 2============\n");
-  // mm_mma_int8<64, 32, 128, 4, 2>(warmup, repeat, m, n, k);
-  // printf("============tile: 32 32 128 2 2============\n");
-  // mm_mma_int8<32, 32, 128, 2, 2>(warmup, repeat, m, n, k);
-  // printf("============tile: 16 16 128 1 1============\n");
-  // mm_mma_int8<16, 16, 128, 1, 1>(warmup, repeat, m, n, k);
+  //printf("============tile: 256 128 128 8 16============\n");
+  //mm_mma_int8<256, 128, 128, 16, 8>(warmup, repeat, m, n, k);
+  //printf("============tile: 128 256 128 8 16============\n");
+  //mm_mma_int8<128, 256, 128, 8, 16>(warmup, repeat, m, n, k);
+  //printf("============tile: 128 128 128 16 8============\n");
+  //mm_mma_int8<128, 128, 128, 16, 8>(warmup, repeat, m, n, k);
+  //printf("============tile: 128 128 128 8 16============\n");
+  //mm_mma_int8<128, 128, 128, 8, 16>(warmup, repeat, m, n, k);
+  printf("============tile: 64 32 128 4 2============\n");
+  mm_mma_int8<64, 32, 128, 4, 2>(warmup, repeat, m, n, k);
+  printf("============tile: 32 32 128 2 2============\n");
+  mm_mma_int8<32, 32, 128, 2, 2>(warmup, repeat, m, n, k);
+  printf("============tile: 16 16 128 1 1============\n");
+  mm_mma_int8<16, 16, 128, 1, 1>(warmup, repeat, m, n, k);
 
   //mm_mma_float<96, 32, 64, 6, 4>(warmup, repeat, m, n, k);
   //mm_mma_float<64, 64, 64, 4, 4>(warmup, repeat, m, n, k);

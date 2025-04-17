@@ -25,14 +25,14 @@ mm_mma_float<96, 32, 64, 6, 4>(warmup, repeat, m, n, k);
 TL DL:
 一个kernel中分配的shared memory或者每个线程使用的寄存器过多，导致kernel不启动或者将数据放在栈上（太慢）。
 
-在编译时加上`-Xptxas=v`参数，可以获取kernel的shared memory，寄存器以及offloading的具体情况。
+在编译时加上`-Xptxas=-v`参数，可以获取kernel的shared memory，寄存器以及offloading的具体情况。
 
 例如：
 之前的分配变量方式：
 ```cuda
   int32_t c_accum[BLOCK_SIZE_M][BLOCK_SIZE_N] = {0};
 ```
-在使用`-Xptxas=v`进行编译时，可以得到如下log：
+在使用`-Xptxas=-v`进行编译时，可以得到如下log：
 ```
 ptxas info    : 282 bytes gmem, 56 bytes cmem[4]
 ptxas info    : Compiling entry function '_Z14matrixMulOnGPUIaiEvPT_S1_PT0_iii' for 'sm_89'
@@ -83,7 +83,7 @@ kernel thread 分配 blockDim(block_n / tile_col, block_m / tile_row)。
 
 shm 为shared memory占用大小，cmem为kernel中const 值占用大小。
 
-shm, cmem, register, stack frame, spill stores, spill loads的内容都是由编译时加`-Xptxas=v`来获取的。
+shm, cmem, register, stack frame, spill stores, spill loads的内容都是由编译时加`-Xptxas=-v`来获取的。
 
 TFLOPS 是由计时函数计算得来。
 
@@ -127,4 +127,56 @@ ptxas info    : Function properties for _Z14matrixMulOnGPUIaiEvPT_S1_PT0_iii
 ptxas info    : Used 33 registers, 388 bytes cmem[0]
 ```
 
+### 编译时间：
 
+不加 -Xptxas=-v, 编译
+
+* mm_mma_int8<128, 128, 128, 16, 8>(warmup, repeat, m, n, k); 编译时间 30.3s。
+* mm_mma_int8<256, 128, 128, 16, 8>(warmup, repeat, m, n, k); 编译时间29.8s。
+
+加上-Xptxas=-v：
+* mm_mma_int8<256, 128, 128, 16, 8>(warmup, repeat, m, n, k); 编译时间28.1s。
+
+再加上-lineinfo:
+* mm_mma_int8<256, 128, 128, 16, 8>(warmup, repeat, m, n, k); 编译时间30.5s。
+
+
+加上-Xptxas=-v -lineinfo 之后，编译下边三个kernel：
+```chda
+  mm_mma_int8<64, 32, 128, 4, 2>(warmup, repeat, m, n, k);
+  mm_mma_int8<32, 32, 128, 2, 2>(warmup, repeat, m, n, k);
+  mm_mma_int8<16, 16, 128, 1, 1>(warmup, repeat, m, n, k);
+```
+总共用时6.3s。
+
+### 为什么大型 kernel 编译慢？(来自 chatGPT)
+#### 原因 1：模板参数放大了代码生成规模
+像 `mm_mma_int8<256,128,128,16,8>` 这种参数会生成一个非常大的 kernel 函数体：
+
+* 包含嵌套 3~4 层的循环；
+* #pragma unroll 展开后是成百上千行的 PTX；
+* 很多乘法 / 累加 / 条件判断会内联展开；
+* 每个 thread 的寄存器分配压力非常高 → 编译器必须做寄存器分配 + spill 分析 + warp 分配模拟
+
+#### 原因 2：大 tile 会产生复杂的共享内存访问模式
+```cpp
+__shared__ int8_t smem_a[BLOCK_SIZE_M][BLOCK_SIZE_K];
+```
+
+当 BLOCK_SIZE_M=256, BLOCK_SIZE_K=128，就意味着你静态声明了 32KB 的共享内存 tile。
+
+* 编译器要检查是否有 warp bank conflict；
+* 如果 #pragma unroll 全展开后访问维度混乱，还得做地址别名分析；
+* 所有这些分析，都是编译时间开销的元凶。
+
+
+#### 原因 3：中间值展开生成成千上万 PTX 指令
+举个例子：
+```cpp
+for (int i = 0; i < TILES_COMPUTE_ROW; ++i)
+  for (int j = 0; j < TILES_COMPUTE_COL; ++j)
+    acc[i][j] += ...
+```
+如果 i=16, j=8，这是 128 组累加器寄存器，每次迭代生成 128 条指令，loop unroll 后乘上 BLOCK_SIZE_K，你就有成千上万条 PTX → 巨大的 SASS 生成开销。
+
+### 可以考虑ccache进行编译加速。
