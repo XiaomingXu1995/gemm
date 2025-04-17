@@ -6,3 +6,5 @@ gemm_cqx
 build/*
 a.out
 *.ncu-rep
+out
+

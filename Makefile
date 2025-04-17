@@ -3,7 +3,7 @@ all: mkdir_build exe1 exe2 exe3 exe4
 exe1: build/generate_random build/check
 exe2: build/gemm_int 
 exe3: build/gemm_float build/gemm_float_multiple
-exe4: build/gemm_cublas build/gemm_cuda build/gemm_tile_fusion build/gemm_mma #build/gemm_cublas_int8
+exe4: build/gemm_cublas build/gemm_cuda build/gemm_tile_fusion build/gemm_shared_memory #build/gemm_cublas_int8
 
 mkdir_build:
 	mkdir -p build
@@ -26,8 +26,8 @@ build/gemm_tile_fusion: gemm_tile_fusion.cu
 	nvcc -O3 -g gemm_tile_fusion.cu -o build/gemm_tile_fusion -Xcompiler -fopenmp
 build/gemm_cublas_int8: gemm_cublas_int8.cu
 	nvcc -O3 -g gemm_cublas_int8.cu -o build/gemm_cublas_int8 -lcublas
-build/gemm_mma: gemm_mma.cu
-	nvcc -lineinfo -O3 -g gemm_mma.cu -o build/gemm_mma -std=c++17 -gencode arch=compute_89,code=sm_89
+build/gemm_shared_memory: gemm_shared_memory.cu
+	nvcc -Xptxas=-v -lineinfo -O3 -g gemm_shared_memory.cu -o build/gemm_shared_memory -std=c++17 -gencode arch=compute_89,code=sm_89
 
 clean:
 	rm -rf build/*
