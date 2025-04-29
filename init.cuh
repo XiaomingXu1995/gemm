@@ -6,6 +6,13 @@
 #define STEP 10
 #define MAX_INT8 127
 
+template<typename T>
+void init_int8_array(T *arr, int size, int low, int high) {
+    for (int i = 0; i < size; ++i) {
+        int val = rand() % (high - low) + low;
+        arr[i] = (T)val;
+    }
+}
 
 template<typename T>
 void initialData(T* ip, size_t size){

@@ -7,15 +7,9 @@
 #include<cuda_fp16.h>
 
 #include "sage_dir/qattn/qk_int_sv_f8_cuda_sm89.cuh"
+#include "init.cuh"
 
 
-template<typename T>
-void init_int8_array(T *arr, int size, int low, int high) {
-    for (int i = 0; i < size; ++i) {
-        int val = rand() % (high - low) + low;
-        arr[i] = (T)val;
-    }
-}
 
 
 int main() {
@@ -25,10 +19,10 @@ int main() {
     const int headdim= 128;
     int seq_len = 1024;
 
-    int num_iters = 10;
+    int num_iters = 1;
 
-    // int seq_len_list[] = {1024, 2048, 4096, 8192, 16384, 32768};
-    int seq_len_list[] = {4096};
+    int seq_len_list[] = {1024, 2048, 4096, 8192, 16384, 32768};
+    // int seq_len_list[] = {4096};
 
     const bool is_causal = false;
     printf("is_causal: %d\n", is_causal);
@@ -158,6 +152,12 @@ int main() {
         float avg_seconds = seconds / num_iters;
         // printf("Time taken: %f s\n", avg_seconds);
         printf("seq_len: %d, TFLOPS: %f\n", seq_len, flops / avg_seconds * 1e-12);
+
+        __half *o_ref = (__half *)malloc(batch * seq_len * head * headdim * sizeof(__half));
+        cudaMemcpy(o_ref, o, batch * seq_len * head * headdim * sizeof(__half), cudaMemcpyDeviceToHost);
+        for(int i = 0; i < 10; i++){
+          printf("o[%d]: %f\n", i, __half2float(o_ref[i]));
+        }
         
   }
 }

@@ -4,7 +4,7 @@ exe1: build/generate_random build/check
 exe2: build/gemm_int 
 exe3: build/gemm_float build/gemm_float_multiple
 exe4: build/gemm_cublas build/gemm_cuda build/gemm_tile_fusion build/gemm_shared_memory #build/gemm_cublas_int8
-exe5: build/sage_attention_test
+exe5: build/sage_attention_test build/gemm_mma
 
 mkdir_build:
 	mkdir -p build
@@ -31,6 +31,8 @@ build/gemm_shared_memory: gemm_shared_memory.cu
 	nvcc -Xptxas=-v -lineinfo -O3 -g gemm_shared_memory.cu -o build/gemm_shared_memory -std=c++17 -gencode arch=compute_89,code=sm_89
 build/sage_attention_test: sage_attention_test.cu
 	nvcc -Xptxas=-v -lineinfo -O3 -g sage_attention_test.cu -o build/sage_attention_test -I sage_dir/ -I sage_dir/qattn/ -std=c++17 -gencode arch=compute_89,code=sm_89
+build/gemm_mma: gemm_mma.cu
+	nvcc -Xptxas=-v -lineinfo -O3 -g gemm_mma.cu -o build/gemm_mma -std=c++17 -gencode arch=compute_89,code=sm_89
 
 clean:
 	rm -rf build/*
