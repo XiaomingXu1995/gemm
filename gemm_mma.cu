@@ -256,9 +256,9 @@ __device__ __forceinline__ void compute_int_qk(const b128_t *smem_Q, const b128_
 // (M,K) * (K,N) = (M,N) A * B = C
 template<int CTA_Q, int CTA_K, int WARP_Q, int WARP_K, int HEAD_DIM>
 __global__ void gemm_mma_kernel(int8_t *A, int8_t *B, int32_t *C, int M, int N, int K) {
-  if(blockIdx.x == 0 && threadIdx.x == 0) {
-    printf("CTA_Q: %d, CTA_K: %d, WARP_Q: %d, WARP_K: %d, HEAD_DIM: %d\n", CTA_Q, CTA_K, WARP_Q, WARP_K, HEAD_DIM);
-  }
+  // if(blockIdx.x == 0 && threadIdx.x == 0) {
+  //   printf("CTA_Q: %d, CTA_K: %d, WARP_Q: %d, WARP_K: %d, HEAD_DIM: %d\n", CTA_Q, CTA_K, WARP_Q, WARP_K, HEAD_DIM);
+  // }
   static_assert(HEAD_DIM == 128, "k (headdim) must be 128");
   constexpr int num_warps_q = CTA_Q / WARP_Q; // 128/32 = 4
   constexpr int num_warps_k = CTA_K / WARP_K; // 64/64 = 1
@@ -279,7 +279,7 @@ __global__ void gemm_mma_kernel(int8_t *A, int8_t *B, int32_t *C, int M, int N, 
   // RS for the register result of int32 accumulator
   int32_t RS[num_tiles_q][num_tiles_k][8];
 
-  constexpr uint32_t global_to_shared_line_lanes = 8; // K / PACK_SIZE = 128 / 16 = 8
+  constexpr uint32_t global_to_shared_line_lanes = 8; // HEAD_DIM / PACK_SIZE = 128 / 16 = 8
   constexpr uint32_t global_to_shared_copy_lines_per_warp = 4; // WARP_Q / global_to_shared_line_lanes = 32 / 8 = 4
   constexpr uint32_t smem_stride = HEAD_DIM / PACK_SIZE; // 128 / 16 = 8
   constexpr uint32_t AB_smem_iters_row = HEAD_DIM / (global_to_shared_line_lanes * PACK_SIZE);
@@ -297,12 +297,13 @@ __global__ void gemm_mma_kernel(int8_t *A, int8_t *B, int32_t *C, int M, int N, 
   b128_t * smem_B = reinterpret_cast<b128_t *>(smem + CTA_Q * K);
   b128_t * smem_C = reinterpret_cast<b128_t *>(smem + CTA_Q * K + CTA_K * K);
 
-  int8_t * A_lane_base_ptr = A + bx * CTA_Q * K + warp_id * WARP_Q * K + (lane_id / global_to_shared_line_lanes) * K + (lane_id % global_to_shared_line_lanes) * PACK_SIZE;
-  int8_t * B_lane_base_ptr = B + (CTA_K / num_warps * warp_id + lane_id / global_to_shared_line_lanes) * K + (lane_id % global_to_shared_line_lanes) * PACK_SIZE;
+  int8_t * A_lane_base_ptr = A + bx * CTA_Q * HEAD_DIM + warp_id * WARP_Q * HEAD_DIM + (lane_id / global_to_shared_line_lanes) * HEAD_DIM + (lane_id % global_to_shared_line_lanes) * PACK_SIZE;
+  int8_t * B_lane_base_ptr = B + (CTA_K / num_warps * warp_id + lane_id / global_to_shared_line_lanes) * HEAD_DIM + (lane_id % global_to_shared_line_lanes) * PACK_SIZE;
+  int32_t * C_lane_base_ptr = C + bx * CTA_Q * N + warp_id * WARP_Q * N + (lane_id / global_to_shared_line_lanes_C) * N;
 
   uint32_t A_smem_offset_load = get_permuted_offset<smem_stride>(warp_id * global_to_shared_copy_lines_per_warp * A_smem_iters_col + lane_id / global_to_shared_line_lanes, lane_id % global_to_shared_line_lanes);
   uint32_t B_smem_offset_load = get_permuted_offset<smem_stride>(warp_id * global_to_shared_copy_lines_per_warp * B_smem_iters_col + lane_id / global_to_shared_line_lanes, lane_id % global_to_shared_line_lanes);
-  //uint32_t C_smem_offset_store = 
+  uint32_t C_smem_offset_store = get_permuted_offset<smem_stride_C>(warp_id * global_to_shared_copy_lines_per_warp_C * C_smem_iters_col + lane_id / global_to_shared_line_lanes_C, lane_id % global_to_shared_line_lanes_C);
 
   const uint32_t num_iterations = div_ceil(N,CTA_K);
 
@@ -342,57 +343,64 @@ __global__ void gemm_mma_kernel(int8_t *A, int8_t *B, int32_t *C, int M, int N, 
 
     //K_idx_lane_base += CTA_K;
 
-  // store C from the register result to shared memory
-  // int32_t RS[num_tiles_q][num_tiles_k][8]; 
-  //num_tiles_q = 2, num_tiles_k = 4, A[32, 128] x B[128, 64] = C[32, 64] = 2 x 4 x [16, 16](m16n16k32) 
-  //[16, 16] = 32 x 8 (32 threads per warp, 8 elements per thread)
+    // if(threadIdx.x == 0 && blockIdx.x == 0 && iter == 0 && warp_id == 0){
+    //   printf("RS[0][0][0]: %d, RS[0][0][1]: %d, RS[0][0][2]: %d, RS[0][0][3]: %d\n", RS[0][0][0], RS[0][0][1], RS[0][0][2], RS[0][0][3]);
+    //   printf("RS[0][1][0]: %d, RS[0][1][1]: %d, RS[0][1][2]: %d, RS[0][1][3]: %d\n", RS[0][1][0], RS[0][1][1], RS[0][1][2], RS[0][1][3]);
+    //   printf("RS[1][0][0]: %d, RS[1][0][1]: %d, RS[1][0][2]: %d, RS[1][0][3]: %d\n", RS[1][0][0], RS[1][0][1], RS[1][0][2], RS[1][0][3]);
+    //   printf("RS[1][1][0]: %d, RS[1][1][1]: %d, RS[1][1][2]: %d, RS[1][1][3]: %d\n", RS[1][1][0], RS[1][1][1], RS[1][1][2], RS[1][1][3]);
+    // }
 
-  // the elements is in int32_t format
+    // store C from the register result to shared memory
+    // int32_t RS[num_tiles_q][num_tiles_k][8]; 
+    //num_tiles_q = 2, num_tiles_k = 4, A[32, 128] x B[128, 64] = C[32, 64] = 2 x 4 x [16, 16](m16n16k32) 
+    //[16, 16] = 32 x 8 (32 threads per warp, 8 elements per thread)
 
-#pragma unroll
-  for (uint32_t fq = 0; fq < num_tiles_q; fq++)
-  {
+    // the elements is in int32_t format
+
     #pragma unroll
-    for (uint32_t fk = 0; fk < num_tiles_k; fk++)
+    for (uint32_t fq = 0; fq < num_tiles_q; fq++)
     {
-      uint32_t C_smem_row = warp_id * (num_tiles_q * MMA_QK_M) + fq * MMA_QK_M + lane_id / 4;
-      uint32_t C_smem_col = fk * MMA_QK_N + (lane_id % 4) * 2;
-      // (uint32_t*)smem_C[C_smem_row][C_smem_col] = RS[fq][fk][0];
-      *((uint32_t*)smem_C + OFFSET(C_smem_row, C_smem_col, MMA_QK_N * num_tiles_k)) = RS[fq][fk][0];
-      *((uint32_t*)smem_C + OFFSET(C_smem_row, C_smem_col + 1, MMA_QK_N * num_tiles_k)) = RS[fq][fk][1];
-      *((uint32_t*)smem_C + OFFSET(C_smem_row + 8, C_smem_col, MMA_QK_N * num_tiles_k)) = RS[fq][fk][2];
-      *((uint32_t*)smem_C + OFFSET(C_smem_row + 8, C_smem_col + 1, MMA_QK_N * num_tiles_k)) = RS[fq][fk][3];
+      #pragma unroll
+      for (uint32_t fk = 0; fk < num_tiles_k; fk++)
+      {
+        uint32_t C_smem_row = warp_id * (num_tiles_q * MMA_QK_M) + fq * MMA_QK_M + lane_id / 4;
+        uint32_t C_smem_col = fk * MMA_QK_N + (lane_id % 4) * 2;
+        // (uint32_t*)smem_C[C_smem_row][C_smem_col] = RS[fq][fk][0];
+        *((uint32_t*)smem_C + OFFSET(C_smem_row, C_smem_col, MMA_QK_N * num_tiles_k)) = RS[fq][fk][0];
+        *((uint32_t*)smem_C + OFFSET(C_smem_row, C_smem_col + 1, MMA_QK_N * num_tiles_k)) = RS[fq][fk][1];
+        *((uint32_t*)smem_C + OFFSET(C_smem_row + 8, C_smem_col, MMA_QK_N * num_tiles_k)) = RS[fq][fk][2];
+        *((uint32_t*)smem_C + OFFSET(C_smem_row + 8, C_smem_col + 1, MMA_QK_N * num_tiles_k)) = RS[fq][fk][3];
 
-      *((uint32_t*)smem_C + OFFSET(C_smem_row, C_smem_col + 8, MMA_QK_N * num_tiles_k)) = RS[fq][fk][4];
-      *((uint32_t*)smem_C + OFFSET(C_smem_row, C_smem_col + 8 + 1, MMA_QK_N * num_tiles_k)) = RS[fq][fk][5];
-      *((uint32_t*)smem_C + OFFSET(C_smem_row + 8, C_smem_col + 8, MMA_QK_N * num_tiles_k)) = RS[fq][fk][6];
-      *((uint32_t*)smem_C + OFFSET(C_smem_row + 8, C_smem_col + 8 + 1, MMA_QK_N * num_tiles_k)) = RS[fq][fk][7];
+        *((uint32_t*)smem_C + OFFSET(C_smem_row, C_smem_col + 8, MMA_QK_N * num_tiles_k)) = RS[fq][fk][4];
+        *((uint32_t*)smem_C + OFFSET(C_smem_row, C_smem_col + 8 + 1, MMA_QK_N * num_tiles_k)) = RS[fq][fk][5];
+        *((uint32_t*)smem_C + OFFSET(C_smem_row + 8, C_smem_col + 8, MMA_QK_N * num_tiles_k)) = RS[fq][fk][6];
+        *((uint32_t*)smem_C + OFFSET(C_smem_row + 8, C_smem_col + 8 + 1, MMA_QK_N * num_tiles_k)) = RS[fq][fk][7];
+      }
     }
-  }
-  __syncwarp();
+    __syncwarp();
 
-  // store C from shared memory to global memory
-  // int8_t * A_lane_base_ptr = A + bx * CTA_Q * K + warp_id * WARP_Q * K + (lane_id / global_to_shared_line_lanes) * K + (lane_id % global_to_shared_line_lanes) * PACK_SIZE;
-  // int8_t * B_lane_base_ptr = B + (CTA_K / num_warps * warp_id + lane_id / global_to_shared_line_lanes) * K + (lane_id % global_to_shared_line_lanes) * PACK_SIZE;
-  int32_t * C_lane_base_ptr = C + bx * CTA_Q * N + warp_id * WARP_Q * N + (lane_id / global_to_shared_line_lanes_C) * N + (lane_id % global_to_shared_line_lanes_C) * PACK_SIZE_INT32;
-  uint32_t C_smem_offset_store = get_permuted_offset<smem_stride_C>(warp_id * global_to_shared_copy_lines_per_warp_C * C_smem_iters_col + lane_id / global_to_shared_line_lanes_C, lane_id % global_to_shared_line_lanes_C);
+    // store C from shared memory to global memory
+    // int8_t * A_lane_base_ptr = A + bx * CTA_Q * HEAD_DIM + warp_id * WARP_Q * HEAD_DIM + (lane_id / global_to_shared_line_lanes) * HEAD_DIM + (lane_id % global_to_shared_line_lanes) * PACK_SIZE;
+    // int8_t * B_lane_base_ptr = B + (CTA_K / num_warps * warp_id + lane_id / global_to_shared_line_lanes) * HEAD_DIM + (lane_id % global_to_shared_line_lanes) * PACK_SIZE;
+    //int32_t * C_lane_base_ptr = C + bx * CTA_Q * N + warp_id * WARP_Q * N + (lane_id / global_to_shared_line_lanes_C) * N + (iter * WARP_K + lane_id % global_to_shared_line_lanes_C) * PACK_SIZE_INT32;
+    //int32_t C_smem_offset_store = get_permuted_offset<smem_stride_C>(warp_id * global_to_shared_copy_lines_per_warp_C * C_smem_iters_col + lane_id / global_to_shared_line_lanes_C, lane_id % global_to_shared_line_lanes_C);
+    C_lane_base_ptr += (iter * WARP_K + lane_id % global_to_shared_line_lanes_C) * PACK_SIZE_INT32;
 
-  #pragma unroll
-  for (uint32_t i = 0; i < C_smem_iters_col; i++)
-  {
     #pragma unroll
-    for (uint32_t j = 0; j < C_smem_iters_row; j++)
+    for (uint32_t inner_row = 0; inner_row < C_smem_iters_col; inner_row++)
     {
-      //store C
-      store_128b(C_smem_offset_store, C_lane_base_ptr, smem_C);
-      C_lane_base_ptr += global_to_shared_line_lanes_C * PACK_SIZE_INT32;
-      C_smem_offset_store = advance_offset_by_column<smem_stride_C>(C_smem_offset_store);
+      #pragma unroll
+      for (uint32_t inner_col = 0; inner_col < C_smem_iters_row; inner_col++)
+      {
+        store_128b(C_smem_offset_store, C_lane_base_ptr, smem_C);
+        C_lane_base_ptr += global_to_shared_line_lanes_C * PACK_SIZE_INT32;
+        C_smem_offset_store = advance_offset_by_column<smem_stride_C>(C_smem_offset_store);
+      }
+      C_smem_offset_store = advance_offset_by_row<global_to_shared_copy_lines_per_warp_C, smem_stride_C>(C_smem_offset_store - C_smem_iters_row * global_to_shared_line_lanes_C);
+      C_lane_base_ptr += ((global_to_shared_copy_lines_per_warp_C * N) - (C_smem_iters_row * global_to_shared_line_lanes_C * PACK_SIZE_INT32));
     }
-    C_smem_offset_store = advance_offset_by_row<global_to_shared_copy_lines_per_warp_C, smem_stride_C>(C_smem_offset_store - C_smem_iters_row * global_to_shared_line_lanes_C);
-    C_lane_base_ptr += ((global_to_shared_copy_lines_per_warp_C * smem_stride_C) - (C_smem_iters_row * global_to_shared_line_lanes_C * PACK_SIZE_INT32));
-  }
-  C_smem_offset_store -= (C_smem_iters_col * global_to_shared_copy_lines_per_warp_C * smem_stride_C);
-  C_lane_base_ptr += ((CTA_Q - C_smem_iters_col * global_to_shared_copy_lines_per_warp_C) * smem_stride_C);
+    C_smem_offset_store -= (C_smem_iters_col * global_to_shared_copy_lines_per_warp_C * smem_stride_C);
+    C_lane_base_ptr += (CTA_Q - C_smem_iters_col * global_to_shared_copy_lines_per_warp_C) * N;
 
     __syncthreads();
 
@@ -412,8 +420,8 @@ __global__ void gemm_mma_kernel(int8_t *A, int8_t *B, int32_t *C, int M, int N, 
 
 
 int main() {
-  int num_warmup = 0;
-  int num_repeat = 1;
+  int num_warmup = 5;
+  int num_repeat = 20;
 
   int seq_len = 4096;
   const int headdim = 128;
@@ -431,7 +439,8 @@ int main() {
   int32_t *c;
   int32_t *c_ref;
 
-  long long int flops = 2 * m * n * k;
+  long long int flops = 2LL * m * n * k;
+  printf("flops Number: %lld\n", flops);
 
   //cudaMalloc(reinterpret_cast<void**>(&q), batch * seq_len * head * headdim * sizeof(int8_t));
   CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&a), m * k * sizeof(int8_t)));
@@ -450,7 +459,7 @@ int main() {
 
   matrixMulOnHost<int8_t, int32_t>(a_ref, b_ref, c_ref, m, n, k);
   for(int i = 0; i < 10; i++){
-    printf("c_ref[%d]: %d\n", i, c_ref[i]);
+    printf("c_ref[%d]: %d\n", i*seq_len, c_ref[i*seq_len]);
   }
 
 
@@ -484,13 +493,13 @@ int main() {
   CUDA_CHECK(cudaEventElapsedTime(&time_mma, start, stop));
   time_mma /= num_repeat;
   time_mma /= 1000;
-  printf("mma time: %f ms\n", time_mma);
+  printf("mma time: %f s\n", time_mma);
   //printf("mma flops: %lld\n", flops);
-  printf("mma gflops: %f\n", flops / time_mma / 1e9);
+  printf("mma gflops: %f\n", flops / time_mma / 1e12);
 
   CUDA_CHECK(cudaMemcpy(c_ref, c, m * n * sizeof(int32_t), cudaMemcpyDeviceToHost));
   for(int i = 0; i < 10; i++){
-    printf("c_ref[%d]: %d\n", i, c_ref[i]);
+    printf("c_ref[%d]: %d\n", i*seq_len, c_ref[i*seq_len]);
   }
 
   return 0;
