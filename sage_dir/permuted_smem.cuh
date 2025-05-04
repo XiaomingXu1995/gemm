@@ -27,6 +27,8 @@
 #include "cp_async.cuh"
 #include "mma.cuh"
 
+//#define NO_PERMUTE_SHARED_MEMORY
+
 enum class SwizzleMode {
   k32B, // for k32B mode, a line of shared memory must have 32B (16 half value)
   k64B, // for k64B mode, a line of shared memory must have 64B (32 half value)
@@ -84,6 +86,9 @@ struct smem_t {
    * \param j The column index.
    */
   static __device__ __forceinline__ uint32_t get_permuted_offset(const uint32_t &i, const uint32_t &j) {
+    #ifdef NO_PERMUTE_SHARED_MEMORY
+      return i * stride + j;
+    #else
     if constexpr (swizzle_mode == SwizzleMode::k128B) {
       return i * stride + (j ^ (i % 8));
     } else if constexpr (swizzle_mode == SwizzleMode::k64B) {
@@ -91,6 +96,7 @@ struct smem_t {
     } else if constexpr (swizzle_mode == SwizzleMode::k32B) {
       return i * stride + j;
     }
+    #endif
   }
 
   /*!
@@ -115,6 +121,9 @@ struct smem_t {
   // ! use with care
   template <uint32_t step_size>
   static __device__ __forceinline__ uint32_t advance_offset_by_column(const uint32_t &offset, const uint32_t &step_idx) {
+    #ifdef NO_PERMUTE_SHARED_MEMORY
+      return offset + step_size;
+    #else
     if constexpr (swizzle_mode == SwizzleMode::k128B) {
       static_assert(step_size == 2 || step_size == 4 || step_size % 8 == 0,
                     "Unsupported step size");
@@ -136,10 +145,14 @@ struct smem_t {
     } else if constexpr (swizzle_mode == SwizzleMode::k32B) {
       return offset + step_size;
     }
+    #endif
   }
 
   template <uint32_t step_size>
   static __device__ __forceinline__ uint32_t advance_offset_by_row(const uint32_t &offset) {
+    #ifdef NO_PERMUTE_SHARED_MEMORY
+      return offset + step_size * stride;
+    #else
     if constexpr (swizzle_mode == SwizzleMode::k128B) {
       static_assert(step_size == 4 || step_size % 8 == 0, "Unsupported step size");
       if constexpr (step_size == 4) {
@@ -159,6 +172,7 @@ struct smem_t {
     } else if constexpr (swizzle_mode == SwizzleMode::k32B) {
       return offset + step_size * stride;
     }
+    #endif
   }
 
   __device__ __forceinline__ void ldmatrix_m8n8x2(const uint32_t &offset, uint32_t* R) const {
