@@ -29,6 +29,21 @@ void fread_tensor(T * buf, size_t num_elements, const char *filename) {
     fclose(fp);
 }
 
+template<typename T>
+void fwrite_tensor(const T* buf, size_t num_elements, const char *filename) {
+    FILE *fp = fopen(filename, "wb");
+    if (fp == NULL) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+        return;
+    }
+    size_t written_elements = fwrite(buf, sizeof(T), num_elements, fp);
+    if (written_elements != num_elements) {
+        std::cerr << "Error writing file: " << filename << std::endl;
+        std::cerr << "Expected: " << num_elements << ", but got: " << written_elements << std::endl;
+    }
+    fclose(fp);
+}
+
 
 
 int main() {
@@ -198,26 +213,27 @@ int main() {
         printf("grid: (%d, %d, %d)\n", grid.x, grid.y, grid.z);
         printf("block: (%d, %d)\n", block.x, block.y);
         printf("smem_max: %zu\n", smem_max);
-        printf("qk_quant_gran: %d\n", qk_quant_gran);
-        printf("mask_mode: %d\n", mask_mode);
-        printf("return_lse: %d\n", return_lse);
 
-        printf("qo_len: %d\n", seq_len);
-        printf("kv_len: %d\n", seq_len);
-        printf("num_kv_groups: %d\n", num_kv_groups);
-        printf("stride_bz_q: %d\n", stride_bz_q);
-        printf("stride_seq_q: %d\n", stride_seq_q);
-        printf("stride_h_q: %d\n", stride_h_q);
-        printf("stride_bz_k: %d\n", stride_bz_k);
-        printf("stride_seq_k: %d\n", stride_seq_k);
-        printf("stride_h_k: %d\n", stride_h_k);
-        printf("stride_bz_v: %d\n", stride_bz_v);
-        printf("stride_h_v: %d\n", stride_h_v);
-        printf("stride_d_v: %d\n", stride_d_v);
-        printf("stride_bz_o: %d\n", stride_bz_o);
-        printf("stride_seq_o: %d\n", stride_seq_o);
-        printf("stride_h_o: %d\n", stride_h_o);
-        printf("sm_scale: %f\n", sm_scale);
+        // printf("qk_quant_gran: %d\n", qk_quant_gran);
+        // printf("mask_mode: %d\n", mask_mode);
+        // printf("return_lse: %d\n", return_lse);
+
+        // printf("qo_len: %d\n", seq_len);
+        // printf("kv_len: %d\n", seq_len);
+        // printf("num_kv_groups: %d\n", num_kv_groups);
+        // printf("stride_bz_q: %d\n", stride_bz_q);
+        // printf("stride_seq_q: %d\n", stride_seq_q);
+        // printf("stride_h_q: %d\n", stride_h_q);
+        // printf("stride_bz_k: %d\n", stride_bz_k);
+        // printf("stride_seq_k: %d\n", stride_seq_k);
+        // printf("stride_h_k: %d\n", stride_h_k);
+        // printf("stride_bz_v: %d\n", stride_bz_v);
+        // printf("stride_h_v: %d\n", stride_h_v);
+        // printf("stride_d_v: %d\n", stride_d_v);
+        // printf("stride_bz_o: %d\n", stride_bz_o);
+        // printf("stride_seq_o: %d\n", stride_seq_o);
+        // printf("stride_h_o: %d\n", stride_h_o);
+        // printf("sm_scale: %f\n", sm_scale);
 
       
       
@@ -266,8 +282,9 @@ int main() {
 
         O_TYPE *o_ref = (O_TYPE *)malloc(batch * seq_len * head * headdim * sizeof(O_TYPE));
         cudaMemcpy(o_ref, o, batch * seq_len * head * headdim * sizeof(__half), cudaMemcpyDeviceToHost);
-        size_t out_size = batch * seq_len * head * headdim;
-        for(size_t i = 0; i < out_size; i++){
+        fwrite_tensor<O_TYPE>(o_ref, batch * seq_len * head * headdim, "o_fp16.bin");
+        //size_t out_size = batch * seq_len * head * headdim;
+        for(size_t i = 0; i < qk_size; i++){
           // union {
           //   __nv_bfloat16 b;
           //   uint16_t u;
@@ -280,7 +297,7 @@ int main() {
           // printf("o[%zu]: %f, exp_raw: %04x, mantissa: %04x\n", i, exp_raw, mas);
 
 
-          printf("o[%zu]: %f\n", i, __half2float(o_ref[i]));
+          //printf("o[%zu]: %f\n", i, __half2float(o_ref[i]));
         }
         // for(int i = 0; i < 20; i++){
         //   printf("o[%d]: %f\n", i, __half2float(o_ref[i]));
