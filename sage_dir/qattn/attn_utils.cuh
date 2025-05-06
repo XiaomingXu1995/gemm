@@ -799,10 +799,12 @@ __device__ __forceinline__ void compute_fp8_sv(const smem_t<swizzle_mode, stride
         if constexpr (std::is_same<DTypeSVAccum, float>::value)
         {
           mma::mma_sync_m16n16k32_row_col_f8f8f32(RO[fq][fv], RS_f8[fq][fk], RV);
+          //mma::mma_sync_m16n16k32_row_col_f8f8f16(RO[fq][fv], RS_f8[fq][fk], RV);
         }
         else if constexpr (std::is_same<DTypeSVAccum, half>::value)
         {
           // ! Not Implemented
+          //mma::mma_sync_m16n16k32_row_col_f8f8f16(RO[fq][fv], RS_f8[fq][fk], RV);
         }
       }
       offset_V = smem_V.advance_offset_by_row<16>(offset_V);

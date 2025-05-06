@@ -560,8 +560,9 @@ __device__ __forceinline__ void mma_sync_m16n8k32_row_col_f8f8f32(float* C, uint
  * \param B pointer to the fragment of matrix B
  */
  template <MMAMode mma_mode = MMAMode::kInplaceUpdate>
- __device__ __forceinline__ void mma_sync_m16n16k32_row_col_f8f8f16(uint32_t* C, uint32_t* A,
+ __device__ __forceinline__ void mma_sync_m16n16k32_row_col_f8f8f16(float* C, uint32_t* A,
                                                                     uint32_t* B) {
+  uint32_t* C_uint32 = reinterpret_cast<uint32_t*>(C);
  #ifdef MMA_F8F8F32_M16N8K16_ENABLED
    if constexpr (mma_mode == MMAMode::kInplaceUpdate)
    {
@@ -571,8 +572,8 @@ __device__ __forceinline__ void mma_sync_m16n8k32_row_col_f8f8f32(float* C, uint
          "{%2,  %3,  %4,  %5},"
          "{%6,  %7},"
          "{%8,  %9};\n"
-         : "=r"(C[0]), "=r"(C[1])
-         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1]), "r"(C[0]), "r"(C[1]));
+         : "=r"(C_uint32[0]), "=r"(C_uint32[1])
+         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1]), "r"(C_uint32[0]), "r"(C_uint32[1]));
      
      asm volatile(
          "mma.sync.aligned.m16n8k32.row.col.f16.e4m3.e5m2.f16 "
@@ -580,8 +581,8 @@ __device__ __forceinline__ void mma_sync_m16n8k32_row_col_f8f8f32(float* C, uint
          "{%2,  %3,  %4,  %5},"
          "{%6,  %7},"
          "{%8,  %9};\n"
-         : "=r"(C[2]), "=r"(C[3])
-         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[2]), "r"(B[3]), "r"(C[2]), "r"(C[3]));
+         : "=r"(C_uint32[2]), "=r"(C_uint32[3])
+         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[2]), "r"(B[3]), "r"(C_uint32[2]), "r"(C_uint32[3]));
    }
    else if constexpr (mma_mode == MMAMode::kInit)
    {
@@ -591,8 +592,8 @@ __device__ __forceinline__ void mma_sync_m16n8k32_row_col_f8f8f32(float* C, uint
          "{%2,  %3,  %4,  %5},"
          "{%6,  %7},"
          "{%8,  %9};\n"
-         : "=f"(C[0]), "=r"(C[1])
-         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1]), "r"(0.f), "r"(0.f));
+         : "=r"(C_uint32[0]), "=r"(C_uint32[1])
+         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1]), "r"(0), "r"(0));
  
      asm volatile(
          "mma.sync.aligned.m16n8k32.row.col.f16.e4m3.e5m2.f16 "
@@ -600,8 +601,8 @@ __device__ __forceinline__ void mma_sync_m16n8k32_row_col_f8f8f32(float* C, uint
          "{%2,  %3,  %4,  %5},"
          "{%6,  %7},"
          "{%8,  %9};\n"
-         : "=f"(C[2]), "=f"(C[3])
-         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[2]), "r"(B[3]), "r"(0.f), "r"(0.f));
+         : "=r"(C_uint32[0]), "=r"(C_uint32[1])
+         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[2]), "r"(B[3]), "r"(0), "r"(0));
    }
  #else
    RUNTIME_ASSERT("Unsupported CUDA architecture for mma instruction");

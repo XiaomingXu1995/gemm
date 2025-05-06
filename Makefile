@@ -29,10 +29,10 @@ build/gemm_cublas_int8: gemm_cublas_int8.cu
 	nvcc -O3 -g gemm_cublas_int8.cu -o build/gemm_cublas_int8 -lcublas
 build/gemm_shared_memory: gemm_shared_memory.cu
 	nvcc -Xptxas=-v -lineinfo -O3 -g gemm_shared_memory.cu -o build/gemm_shared_memory -std=c++17 -gencode arch=compute_89,code=sm_89
-build/sage_attention_test: sage_attention_test.cu
-	nvcc -Xptxas=-v -lineinfo -O3 -g sage_attention_test.cu -o build/sage_attention_test -I sage_dir/ -I sage_dir/qattn/ -std=c++17 -gencode arch=compute_89,code=sm_89
-build/gemm_mma: gemm_mma.cu
-	nvcc -Xptxas=-v -lineinfo -O3 -g gemm_mma.cu -o build/gemm_mma -std=c++17 -gencode arch=compute_89,code=sm_89
+build/sage_attention_test: sage_attention_test.cu sage_dir/qattn/* sage_dir/* ./*.cuh
+	nvcc -Xptxas=-v -lineinfo -O3 -g sage_attention_test.cu -o build/sage_attention_test -I sage_dir/ -I sage_dir/qattn/ -std=c++17 -gencode arch=compute_120,code=sm_120
+build/gemm_mma: gemm_mma.cu 
+	nvcc -Xptxas=-v -lineinfo -O3 -g gemm_mma.cu -o build/gemm_mma -std=c++17 -gencode arch=compute_120,code=sm_120
 
 clean:
 	rm -rf build/*
