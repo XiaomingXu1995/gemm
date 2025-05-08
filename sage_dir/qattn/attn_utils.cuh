@@ -28,6 +28,9 @@
 #define WARP_SIZE 32
 
 #define S_FP8_OFFSET 8.807f
+//#define S_FP8_OFFSET 6.80735f
+//#define S_FP8_OFFSET 5.807f
+//#define S_FP8_OFFSET 0.0f
 #define S_FP8_OFFSET_EXP 6680.8477f
 #define S_FP8_OFFSET_EXP_INV 0.0022326917f
 
@@ -393,6 +396,35 @@ __device__ __forceinline__ void update_mdo(float RS[][num_tiles_k][8], DTypeSVAc
       m_temp = max(m_temp, __shfl_xor_sync(0xffffffff, m_temp, 0x2)); // 0 exchange with 2, 1 exchange with 3
 
       m[fq][k] = max(m[fq][k], m_temp);
+
+      // S_FP8_OFFSET -= (m_temp - m[fq][k]);
+      // float s_fp8_offset_tmp =  S_FP8_OFFSET - (m_temp - m[fq][k]);
+      // float s_fp8_offset_tmp =  S_FP8_OFFSET;
+      
+      // if constexpr (!fuse_scale)
+      // {
+      //   if constexpr (exp_offset)
+      //   {
+      //     // m_temp = fmaf(m_temp, sm_scale, -S_FP8_OFFSET);
+      //     // m[fq][k] = fmaf(m[fq][k], sm_scale, -S_FP8_OFFSET);
+      //     m_temp = fmaf(m_temp, sm_scale, -s_fp8_offset_tmp);
+      //     m[fq][k] = fmaf(m[fq][k], sm_scale, -s_fp8_offset_tmp);
+      //     // m_temp = max(m_temp, -(S_FP8_OFFSET-(m_local-m_temp)));
+      //   }
+      //   else
+      //   {
+      //     m_temp *= sm_scale;
+      //     m[fq][k] *= sm_scale; 
+      //   }
+      // }
+      // else if constexpr (exp_offset)
+      // {        
+      //   // m_temp += (-S_FP8_OFFSET);
+      //   // m[fq][k] += (-S_FP8_OFFSET);        
+      //   m_temp += (-s_fp8_offset_tmp);
+      //   m[fq][k] += (-s_fp8_offset_tmp);        
+      // }
+
 
       float o_scale = math::ptx_exp2(m_prev - m[fq][k]);
 
@@ -791,6 +823,8 @@ __device__ __forceinline__ void compute_fp8_sv(const smem_t<swizzle_mode, stride
     {
       // load RV
       uint32_t RV[4];
+      uint32_t RO_tmp[4];
+      float RO_tmp_float[8];
       // uint32_t offset_V = (smem_V).get_permuted_offset(smem_V_row_base + fv * 16, smem_V_col_base + fk * 2);
       smem_V.ldmatrix_m8n8x4(offset_V, RV);
 #pragma unroll
@@ -798,8 +832,17 @@ __device__ __forceinline__ void compute_fp8_sv(const smem_t<swizzle_mode, stride
       {
         if constexpr (std::is_same<DTypeSVAccum, float>::value)
         {
-          mma::mma_sync_m16n16k32_row_col_f8f8f32(RO[fq][fv], RS_f8[fq][fk], RV);
-          //mma::mma_sync_m16n16k32_row_col_f8f8f16(RO[fq][fv], RS_f8[fq][fk], RV);
+          //mma::mma_sync_m16n16k32_row_col_f8f8f32(RO[fq][fv], RS_f8[fq][fk], RV);
+          //mma::mma_sync_m16n16k32_row_col_f8f8f32<mma::MMAMode::kInit>(RO_tmp_float, RS_f8[fq][fk], RV);
+          mma::mma_sync_m16n16k32_row_col_f8f8f16<mma::MMAMode::kInit>(RO_tmp, RS_f8[fq][fk], RV);
+          #pragma unroll
+          for(int i = 0; i < 8; i++){
+            //RO[fq][fv][i] += RO_tmp_float[i];
+
+            half2 h2 = ((half2*)RO_tmp)[i/2];
+            __half h = (i % 2 == 0) ? h2.x : h2.y;
+            RO[fq][fv][i] += __half2float(h);
+          }
         }
         else if constexpr (std::is_same<DTypeSVAccum, half>::value)
         {

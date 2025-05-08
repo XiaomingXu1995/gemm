@@ -103,7 +103,8 @@ int main() {
 
         fread_tensor<int8_t>(tmp_q, qk_size, "/root/xxm/data/q_int8.bin");
         fread_tensor<int8_t>(tmp_k, qk_size, "/root/xxm/data/k_int8.bin");
-        fread_tensor<uint8_t>(tmp_v, v_size, "/root/xxm/data/v_int8.bin");
+        //fread_tensor<uint8_t>(tmp_v, v_size, "/root/xxm/data/v_int8.bin");
+        fread_tensor<uint8_t>(tmp_v, v_size, "/root/xxm/SageAttention/v_int8.bin");
 
         cudaMemcpy(q, tmp_q, qk_size * sizeof(int8_t), cudaMemcpyHostToDevice);
         cudaMemcpy(k, tmp_k, qk_size * sizeof(int8_t), cudaMemcpyHostToDevice);
@@ -142,7 +143,8 @@ int main() {
         float * v_scale_ref = (float *)malloc(v_scale_size * sizeof(float));
         fread_tensor<float>(q_scale_ref, q_scale_size, "/root/xxm/data/q_scale.bin");
         fread_tensor<float>(k_scale_ref, k_scale_size, "/root/xxm/data/k_scale.bin");
-        fread_tensor<float>(v_scale_ref, v_scale_size, "/root/xxm/data/v_scale.bin");
+        //fread_tensor<float>(v_scale_ref, v_scale_size, "/root/xxm/data/v_scale.bin");
+        fread_tensor<float>(v_scale_ref, v_scale_size, "/root/xxm/SageAttention/v_scale.bin");
 
         // for(int i = 0; i < q_scale_size; i++) {
         //     printf("q_scale[%d]: %f\n", i, q_scale_ref[i]);
