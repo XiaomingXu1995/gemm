@@ -29,12 +29,45 @@ is_causal = False
 
 
 if __name__ == '__main__':
-    with open(f"/root/xxm/data/0_q_tensor.pkl", "rb") as f:
+    query_path = "/root/xxm/data/0_q_tensor.pkl"
+    key_path = "/root/xxm/data/0_k_tensor.pkl"
+    value_path = "/root/xxm/data/0_v_tensor.pkl"
+
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "cogvideox0":
+            query_path = "/data/tensors/CogVideoX-5b/0-value.pkl"
+            key_path = "/data/tensors/CogVideoX-5b/0-key.pkl"
+            value_path = "/data/tensors/CogVideoX-5b/0-query.pkl"
+        elif sys.argv[1] == "cogvideox1":   
+            query_path = "/data/tensors/CogVideoX-5b/21-value.pkl"
+            key_path = "/data/tensors/CogVideoX-5b/21-key.pkl"
+            value_path = "/data/tensors/CogVideoX-5b/21-query.pkl"
+        elif sys.argv[1] == "cogvideo0":
+            query_path = "/data/tensors/Cogvideo-2b-tensors/9-query.pkl"
+            key_path = "/data/tensors/Cogvideo-2b-tensors/9-key.pkl"
+            value_path = "/data/tensors/Cogvideo-2b-tensors/9-value.pkl"
+        elif sys.argv[1] == "cogvideo1":
+            query_path = "/data/tensors/Cogvideo-2b-tensors/28_q_tensor.pkl"
+            key_path = "/data/tensors/Cogvideo-2b-tensors/28_k_tensor.pkl"
+            value_path = "/data/tensors/Cogvideo-2b-tensors/28_v_tensor.pkl"
+        elif sys.argv[1] == "llama":
+            query_path = "/data/tensors/llama/2k-query.pkl"
+            key_path = "/data/tensors/llama/2k-key.pkl"
+            value_path = "/data/tensors/llama/2k-value.pkl"
+
+
+    #query_path = "/data/tensors/llama/2k-query.pkl"
+    #key_path = "/data/tensors/llama/2k-key.pkl"
+    #value_path = "/data/tensors/llama/2k-value.pkl"
+
+
+    with open(query_path, "rb") as f:
         q = pickle.load(f).to('cuda').to(torch.float16).contiguous()
-    with open(f"/root/xxm/data/0_k_tensor.pkl", "rb") as f:
+    with open(key_path, "rb") as f:
         k = pickle.load(f).to('cuda').to(torch.float16).contiguous()
-    with open(f"/root/xxm/data/0_v_tensor.pkl", "rb") as f:
+    with open(value_path, "rb") as f:
         v = pickle.load(f).to('cuda').to(torch.float16).contiguous()
+
 
     # q_flat = q.view(-1)
     # k_flat = k.view(-1)

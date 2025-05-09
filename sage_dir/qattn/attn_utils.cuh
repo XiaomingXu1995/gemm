@@ -811,11 +811,12 @@ template <uint32_t num_warps_q, uint32_t num_warps_k,
           SwizzleMode swizzle_mode, uint32_t stride, typename DTypeSVAccum>
 __device__ __forceinline__ void compute_fp8_sv(const smem_t<swizzle_mode, stride> &smem_V, uint32_t RS_f8[][num_tiles_k / 2][4], DTypeSVAccum RO[][num_tiles_v][8], float d[][2])
 {
+  
   uint32_t smem_V_row_base = get_lane_id() % 8 + (get_lane_id() / 16) * 8;
   // uint32_t smem_V_col_base = get_warp_idx_k<num_warps_q, num_warps_k>() * ((16 * num_tiles_k) / 16) + (get_lane_id() / 8) % 2;
   uint32_t smem_V_col_base = (get_lane_id() / 8) % 2;
-#pragma unroll
-  for (uint32_t fk = 0; fk < num_tiles_k / 2; fk++)
+  uint32_t RO_int32[num_tiles_q][num_tiles_v][4];
+  for (uint32_t fk = 0; fk < 1; fk++)
   {
     uint32_t offset_V = smem_V.get_permuted_offset(smem_V_row_base, smem_V_col_base + fk * 2);
 #pragma unroll
@@ -823,8 +824,9 @@ __device__ __forceinline__ void compute_fp8_sv(const smem_t<swizzle_mode, stride
     {
       // load RV
       uint32_t RV[4];
-      uint32_t RO_tmp[4];
-      float RO_tmp_float[8];
+      //uint32_t RO_tmp[4];
+      //float RO_tmp_float[2];
+      //float RO_tmp_float[8];
       // uint32_t offset_V = (smem_V).get_permuted_offset(smem_V_row_base + fv * 16, smem_V_col_base + fk * 2);
       smem_V.ldmatrix_m8n8x4(offset_V, RV);
 #pragma unroll
@@ -834,15 +836,30 @@ __device__ __forceinline__ void compute_fp8_sv(const smem_t<swizzle_mode, stride
         {
           //mma::mma_sync_m16n16k32_row_col_f8f8f32(RO[fq][fv], RS_f8[fq][fk], RV);
           //mma::mma_sync_m16n16k32_row_col_f8f8f32<mma::MMAMode::kInit>(RO_tmp_float, RS_f8[fq][fk], RV);
-          mma::mma_sync_m16n16k32_row_col_f8f8f16<mma::MMAMode::kInit>(RO_tmp, RS_f8[fq][fk], RV);
-          #pragma unroll
-          for(int i = 0; i < 8; i++){
-            //RO[fq][fv][i] += RO_tmp_float[i];
+          mma::mma_sync_m16n16k32_row_col_f8f8f16<mma::MMAMode::kInit>(RO_int32[fq][fv], RS_f8[fq][fk], RV);
+          //unpack_4xuint32_to_8xf32_ptx(RO_tmp, RO[fq][fv]);
+          //mma::mma_sync_m16n16k32_row_col_f8f8f16<mma::MMAMode::kInit>(RO[fq][fv], RS_f8[fq][fk], RV);
+          // # pragma unroll
+          // for(int i = 0; i < 8; i++){
+          //   RO[fq][fv][i] += RO_tmp_float[i];
+          // }
+          //#pragma unroll
+          //for(int i = 0; i < 4; i++){
+          //  //uint32_t u = RO_tmp[i];
+          //  //uint16_t h0 = (u & 0xFFFF);
+          //  //uint16_t h1 = (u >> 16) & 0xFFFF;
+          //  
+          //  unpack_half2_from_uint32_to_float(RO_tmp_float, RO_tmp[i]);
+          //  RO[fq][fv][i * 2 + 0] += RO_tmp_float[0];
+          //  RO[fq][fv][i * 2 + 1] += RO_tmp_float[1];
+          //}
 
-            half2 h2 = ((half2*)RO_tmp)[i/2];
-            __half h = (i % 2 == 0) ? h2.x : h2.y;
-            RO[fq][fv][i] += __half2float(h);
-          }
+          //for(int i = 0; i < 8; i++){
+          //  RO[fq][fv][i] += RO_tmp_float[i];
+          //  //half2 h2 = ((half2*)RO_tmp)[i/2];
+          //  //__half h = (i % 2 == 0) ? h2.x : h2.y;
+          //  //RO[fq][fv][i] += __half2float(h);
+          //}
         }
         else if constexpr (std::is_same<DTypeSVAccum, half>::value)
         {
@@ -851,6 +868,74 @@ __device__ __forceinline__ void compute_fp8_sv(const smem_t<swizzle_mode, stride
         }
       }
       offset_V = smem_V.advance_offset_by_row<16>(offset_V);
+    }
+  }
+#pragma unroll
+  for (uint32_t fk = 1; fk < num_tiles_k / 2; fk++)
+  {
+    uint32_t offset_V = smem_V.get_permuted_offset(smem_V_row_base, smem_V_col_base + fk * 2);
+#pragma unroll
+    for (uint32_t fv = 0; fv < num_tiles_v; fv++)
+    {
+      // load RV
+      uint32_t RV[4];
+      //uint32_t RO_tmp[4];
+      //float RO_tmp_float[2];
+      //float RO_tmp_float[8];
+      // uint32_t offset_V = (smem_V).get_permuted_offset(smem_V_row_base + fv * 16, smem_V_col_base + fk * 2);
+      smem_V.ldmatrix_m8n8x4(offset_V, RV);
+#pragma unroll
+      for (uint32_t fq = 0; fq < num_tiles_q; fq++)
+      {
+        if constexpr (std::is_same<DTypeSVAccum, float>::value)
+        {
+          //mma::mma_sync_m16n16k32_row_col_f8f8f32(RO[fq][fv], RS_f8[fq][fk], RV);
+          //mma::mma_sync_m16n16k32_row_col_f8f8f32<mma::MMAMode::kInit>(RO_tmp_float, RS_f8[fq][fk], RV);
+          mma::mma_sync_m16n16k32_row_col_f8f8f16<mma::MMAMode::kInplaceUpdate>(RO_int32[fq][fv], RS_f8[fq][fk], RV);
+          //unpack_4xuint32_to_8xf32_ptx(RO_tmp, RO[fq][fv]);
+          //mma::mma_sync_m16n16k32_row_col_f8f8f16<mma::MMAMode::kInit>(RO[fq][fv], RS_f8[fq][fk], RV);
+          // # pragma unroll
+          // for(int i = 0; i < 8; i++){
+          //   RO[fq][fv][i] += RO_tmp_float[i];
+          // }
+          //#pragma unroll
+          //for(int i = 0; i < 4; i++){
+          //  //uint32_t u = RO_tmp[i];
+          //  //uint16_t h0 = (u & 0xFFFF);
+          //  //uint16_t h1 = (u >> 16) & 0xFFFF;
+          //  
+          //  unpack_half2_from_uint32_to_float(RO_tmp_float, RO_tmp[i]);
+          //  RO[fq][fv][i * 2 + 0] += RO_tmp_float[0];
+          //  RO[fq][fv][i * 2 + 1] += RO_tmp_float[1];
+          //}
+
+          //for(int i = 0; i < 8; i++){
+          //  RO[fq][fv][i] += RO_tmp_float[i];
+          //  //half2 h2 = ((half2*)RO_tmp)[i/2];
+          //  //__half h = (i % 2 == 0) ? h2.x : h2.y;
+          //  //RO[fq][fv][i] += __half2float(h);
+          //}
+        }
+        else if constexpr (std::is_same<DTypeSVAccum, half>::value)
+        {
+          // ! Not Implemented
+          //mma::mma_sync_m16n16k32_row_col_f8f8f16(RO[fq][fv], RS_f8[fq][fk], RV);
+        }
+      }
+      offset_V = smem_V.advance_offset_by_row<16>(offset_V);
+    }
+  }
+float RO_tmp_float[2];
+#pragma unroll
+  for(int i = 0; i < num_tiles_q; i++){
+#pragma unroll
+    for(int j = 0; j < num_tiles_v; j++){ 
+    #pragma unroll
+      for(int k = 0; k < 4; k++){
+        unpack_half2_from_uint32_to_float(RO_tmp_float, RO_int32[i][j][k]);
+        RO[i][j][k * 2 + 0] += RO_tmp_float[0];
+        RO[i][j][k * 2 + 1] += RO_tmp_float[1];
+      }
     }
   }
 }

@@ -296,6 +296,7 @@ __global__ void qk_int_sv_f8_attn_kernel(int8_t *__restrict__ Q, int8_t *__restr
         for (uint32_t k = 0; k < 8; k++)
         {
           RS_f32[fq][fk][k] = __int2float_rz(RS[fq][fk][k]);
+          //RS_f32[fq][fk][k] = fast_int_to_float(RS[fq][fk][k]);
         }
       }
     }
@@ -393,6 +394,7 @@ __global__ void qk_int_sv_f8_attn_kernel(int8_t *__restrict__ Q, int8_t *__restr
         for (uint32_t k = 0; k < 8; k++)
         {
           RS_f32[fq][fk][k] = __int2float_rz(RS[fq][fk][k]) * dequant_scale;
+          //RS_f32[fq][fk][k] = fast_int_to_float(RS[fq][fk][k]) * dequant_scale;
         }
       }
     }
@@ -494,6 +496,7 @@ __global__ void qk_int_sv_f8_attn_kernel(int8_t *__restrict__ Q, int8_t *__restr
         for (uint32_t k = 0; k < 8; k++)
         {
           RS_f32[fq][fk][k] = __int2float_rz(RS[fq][fk][k]) * dequant_scale;
+          //RS_f32[fq][fk][k] = fast_int_to_float(RS[fq][fk][k]) * dequant_scale;
         }
       }
     }

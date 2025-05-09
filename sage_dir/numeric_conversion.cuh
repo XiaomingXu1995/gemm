@@ -35,6 +35,11 @@
 #include <assert.h>
 #define RUNTIME_ASSERT(x) assert(0 && x)
 #endif
+__forceinline__ __device__ float fast_int_to_float (int a) {
+  const float fmagic = (1 << 23) + (1 << 22);
+  const int imagic = __float_as_int (fmagic);
+  return __int_as_float (imagic + a) - fmagic;
+}
 
 __device__ __forceinline__ void floatx4_to_e4m3x4(uint32_t *dest, float *source0, float *source1)
 {
@@ -51,6 +56,74 @@ __device__ __forceinline__ void floatx4_to_e4m3x4(uint32_t *dest, float *source0
 #else
   RUNTIME_ASSERT("Unsupported CUDA architecture for FP8 CAST instruction");
 #endif
+}
+__device__ __forceinline__ float half_to_float_ptx(uint16_t h) {
+    float result;
+    asm("cvt.f32.f16 %0, %1;" : "=f"(result) : "h"(h));
+    return result;
+}
+__device__ __forceinline__ void unpack_4xuint32_to_8xf32_ptx(const uint32_t* src, float* dst) {
+    // Unpack src[0] -> dst[0], dst[1]
+    asm volatile (
+        "{\n"
+        ".reg .b16 lo, hi;\n"\
+        ".reg .b32 lo32, hi32;\n"\
+        "mov.b32 {lo, hi}, %2;\n"\
+        "cvt.f32.f16 lo32, lo;\n"\
+        "cvt.f32.f16 hi32, hi;\n"\
+        "add.f32 %0, %0, lo32;\n"\
+        "add.f32 %1, %1, hi32;\n"\
+        "}\n"\
+        : "+f"(dst[0]), "+f"(dst[1])\
+        : "r"(src[0])
+    );
+    asm volatile (
+        "{\n"
+        ".reg .b16 lo, hi;\n"\
+        ".reg .b32 lo32, hi32;\n"\
+        "mov.b32 {lo, hi}, %2;\n"\
+        "cvt.f32.f16 lo32, lo;\n"\
+        "cvt.f32.f16 hi32, hi;\n"\
+        "add.f32 %0, %0, lo32;\n"\
+        "add.f32 %1, %1, hi32;\n"\
+        "}\n"\
+        : "+f"(dst[2]), "+f"(dst[3])\
+        : "r"(src[1])
+    );
+    asm volatile (
+        "{\n"
+        ".reg .b16 lo, hi;\n"\
+        ".reg .b32 lo32, hi32;\n"\
+        "mov.b32 {lo, hi}, %2;\n"\
+        "cvt.f32.f16 lo32, lo;\n"\
+        "cvt.f32.f16 hi32, hi;\n"\
+        "add.f32 %0, %0, lo32;\n"\
+        "add.f32 %1, %1, hi32;\n"\ 
+        "}\n"\
+        : "+f"(dst[4]), "+f"(dst[5])\
+        : "r"(src[2])
+    );
+    asm volatile (
+        "{\n"
+        ".reg .b16 lo, hi;\n"\
+        ".reg .b32 lo32, hi32;\n"\
+        "mov.b32 {lo, hi}, %2;\n"\
+        "cvt.f32.f16 lo32, lo;\n"\
+        "cvt.f32.f16 hi32, hi;\n"\
+        "add.f32 %0, %0, lo32;\n"\
+        "add.f32 %1, %1, hi32;\n"\
+        "}\n"\
+        : "+f"(dst[6]), "+f"(dst[7])\
+        : "r"(src[3])
+    );
+}
+
+
+__device__ __forceinline__ void unpack_half2_from_uint32_to_float(float* dest, uint32_t source) {
+  uint16_t h0 = source & 0xFFFF;
+  uint16_t h1 = (source >> 16) & 0xFFFF;
+  asm("cvt.f32.f16 %0, %1;" : "=f"(dest[0]) : "h"(h0));
+  asm("cvt.f32.f16 %0, %1;" : "=f"(dest[1]) : "h"(h1));
 }
 
 __device__ __forceinline__ void floatx4_to_e5m2x4(uint32_t *dest, float *source0, float *source1)

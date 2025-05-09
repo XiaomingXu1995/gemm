@@ -563,6 +563,7 @@ __device__ __forceinline__ void mma_sync_m16n8k32_row_col_f8f8f32(float* C, uint
  __device__ __forceinline__ void mma_sync_m16n16k32_row_col_f8f8f16(uint32_t* C_uint32, uint32_t* A,
                                                                     uint32_t* B) {
   //uint32_t* C_uint32 = reinterpret_cast<uint32_t*>(C);
+  //uint32_t C_uint32[4];
  #ifdef MMA_F8F8F32_M16N8K16_ENABLED
    if constexpr (mma_mode == MMAMode::kInplaceUpdate)
    {
@@ -594,6 +595,32 @@ __device__ __forceinline__ void mma_sync_m16n8k32_row_col_f8f8f32(float* C, uint
          "{%8,  %9};\n"
          : "=r"(C_uint32[0]), "=r"(C_uint32[1])
          : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1]), "r"(0), "r"(0));
+      // asm volatile (
+      //     "{\n"
+      //     ".reg .b16 lo, hi;\n"\
+      //     ".reg .b32 lo32, hi32;\n"\
+      //     "mov.b32 {lo, hi}, %2;\n"\
+      //     "cvt.f32.f16 lo32, lo;\n"\
+      //     "cvt.f32.f16 hi32, hi;\n"\
+      //     "add.f32 %0, %0, lo32;\n"\
+      //     "add.f32 %1, %1, hi32;\n"\
+      //     "}\n"\
+      //     : "+f"(dst[0]), "+f"(dst[1])\
+      //     : "r"(C_uint32[0])
+      // );
+      // asm volatile (
+      //     "{\n"
+      //     ".reg .b16 lo, hi;\n"\
+      //     ".reg .b32 lo32, hi32;\n"\
+      //     "mov.b32 {lo, hi}, %2;\n"\
+      //     "cvt.f32.f16 lo32, lo;\n"\
+      //     "cvt.f32.f16 hi32, hi;\n"\
+      //     "add.f32 %0, %0, lo32;\n"\
+      //     "add.f32 %1, %1, hi32;\n"\
+      //     "}\n"\
+      //     : "+f"(dst[2]), "+f"(dst[3])\
+      //     : "r"(C_uint32[1])
+      // );
  
      asm volatile(
          "mma.sync.aligned.m16n8k32.row.col.f16.e4m3.e4m3.f16 "
@@ -603,6 +630,32 @@ __device__ __forceinline__ void mma_sync_m16n8k32_row_col_f8f8f32(float* C, uint
          "{%8,  %9};\n"
          : "=r"(C_uint32[2]), "=r"(C_uint32[3])
          : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[2]), "r"(B[3]), "r"(0), "r"(0));
+      //asm volatile (
+      //    "{\n"
+      //    ".reg .b16 lo, hi;\n"\
+      //    ".reg .b32 lo32, hi32;\n"\
+      //    "mov.b32 {lo, hi}, %2;\n"\
+      //    "cvt.f32.f16 lo32, lo;\n"\
+      //    "cvt.f32.f16 hi32, hi;\n"\
+      //    "add.f32 %0, %0, lo32;\n"\
+      //    "add.f32 %1, %1, hi32;\n"\ 
+      //    "}\n"\
+      //    : "+f"(dst[4]), "+f"(dst[5])\
+      //    : "r"(C_uint32[2])
+      //);
+      //asm volatile (
+      //    "{\n"
+      //    ".reg .b16 lo, hi;\n"\
+      //    ".reg .b32 lo32, hi32;\n"\
+      //    "mov.b32 {lo, hi}, %2;\n"\
+      //    "cvt.f32.f16 lo32, lo;\n"\
+      //    "cvt.f32.f16 hi32, hi;\n"\
+      //    "add.f32 %0, %0, lo32;\n"\
+      //    "add.f32 %1, %1, hi32;\n"\
+      //    "}\n"\
+      //    : "+f"(dst[6]), "+f"(dst[7])\
+      //    : "r"(C_uint32[3])
+      //);
    }
  #else
    RUNTIME_ASSERT("Unsupported CUDA architecture for mma instruction");

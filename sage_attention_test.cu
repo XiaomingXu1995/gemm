@@ -8,6 +8,7 @@
 
 #include "sage_dir/qattn/qk_int_sv_f8_cuda_sm89.cuh"
 #include "init.cuh"
+#include <string>
 
 //#define O_TYPE __nv_bfloat16
 #define O_TYPE __half
@@ -46,20 +47,51 @@ void fwrite_tensor(const T* buf, size_t num_elements, const char *filename) {
 
 
 
-int main() {
+int main(int argc, char * argv[]) {
+
     // 设置输入参数
-
-    // int batch = 4;
-    // int head = 32;
-    // const int headdim= 128;
-    // int seq_len = 1024;
-
     int batch = 1;
     int head = 24;
     const int headdim= 64;
     int seq_len = 1105;
 
-    int num_iters = 1;
+    // int batch = 1;
+    // int head = 32;
+    // const int headdim= 128;
+    // int seq_len = 2048;
+    if(argc > 1) {
+      std::string data_name = argv[1];
+      if(data_name == "cogvideox0") {
+        batch = 2;
+        head = 48;
+        seq_len = 45106;
+        
+      } 
+      else if(data_name == "cogvideox1") {
+        batch = 2;
+        head = 48;
+        seq_len = 45106;
+      }
+      else if(data_name == "cogvideo0") {
+        batch = 2;
+        head = 30;
+        seq_len = 17776;
+      }
+      else if(data_name == "cogvideo1") {
+        batch = 2;
+        head = 30;
+        seq_len = 17776;
+      }
+      else if(data_name == "llama"){
+        batch = 1;
+        head = 32;
+        seq_len = 2048;
+      }
+    }
+
+
+    int warm_up = 5;
+    int num_iters = 10;
 
     int seq_len_list[] = {1024, 2048, 4096, 8192, 16384, 32768};
     // int seq_len_list[] = {4096};
@@ -80,8 +112,7 @@ int main() {
 
 
     for (int i = 0; i < 1; i++) {
-        seq_len = seq_len_list[i];
-        seq_len = 1105;
+        //seq_len = seq_len_list[i];
         size_t flops = 4LL * head * batch * headdim * seq_len * seq_len;
         // printf("flops: %zu\n", flops);
 
@@ -101,10 +132,17 @@ int main() {
         int8_t * tmp_k = (int8_t *)malloc(qk_size * sizeof(int8_t));
         uint8_t * tmp_v = (uint8_t *)malloc(v_size * sizeof(uint8_t));
 
-        fread_tensor<int8_t>(tmp_q, qk_size, "/root/xxm/data/q_int8.bin");
-        fread_tensor<int8_t>(tmp_k, qk_size, "/root/xxm/data/k_int8.bin");
+        //fread_tensor<int8_t>(tmp_q, qk_size, "/root/xxm/data/q_int8.bin");
+        //fread_tensor<int8_t>(tmp_k, qk_size, "/root/xxm/data/k_int8.bin");
         //fread_tensor<uint8_t>(tmp_v, v_size, "/root/xxm/data/v_int8.bin");
-        fread_tensor<uint8_t>(tmp_v, v_size, "/root/xxm/SageAttention/v_int8.bin");
+
+        //fread_tensor<int8_t>(tmp_q, qk_size, "/root/xxm/SageAttention/q_int8.bin");
+        //fread_tensor<int8_t>(tmp_k, qk_size, "/root/xxm/SageAttention/k_int8.bin");
+        //fread_tensor<uint8_t>(tmp_v, v_size, "/root/xxm/SageAttention/v_int8.bin");
+
+        fread_tensor<int8_t>(tmp_q, qk_size, "/root/xxm/gemm/q_int8.bin");
+        fread_tensor<int8_t>(tmp_k, qk_size, "/root/xxm/gemm/k_int8.bin");
+        fread_tensor<uint8_t>(tmp_v, v_size, "/root/xxm/gemm/v_int8.bin");
 
         cudaMemcpy(q, tmp_q, qk_size * sizeof(int8_t), cudaMemcpyHostToDevice);
         cudaMemcpy(k, tmp_k, qk_size * sizeof(int8_t), cudaMemcpyHostToDevice);
@@ -141,10 +179,17 @@ int main() {
         float * q_scale_ref = (float *)malloc(q_scale_size * sizeof(float));
         float * k_scale_ref = (float *)malloc(k_scale_size * sizeof(float));
         float * v_scale_ref = (float *)malloc(v_scale_size * sizeof(float));
-        fread_tensor<float>(q_scale_ref, q_scale_size, "/root/xxm/data/q_scale.bin");
-        fread_tensor<float>(k_scale_ref, k_scale_size, "/root/xxm/data/k_scale.bin");
+        //fread_tensor<float>(q_scale_ref, q_scale_size, "/root/xxm/data/q_scale.bin");
+        //fread_tensor<float>(k_scale_ref, k_scale_size, "/root/xxm/data/k_scale.bin");
         //fread_tensor<float>(v_scale_ref, v_scale_size, "/root/xxm/data/v_scale.bin");
-        fread_tensor<float>(v_scale_ref, v_scale_size, "/root/xxm/SageAttention/v_scale.bin");
+
+        //fread_tensor<float>(q_scale_ref, q_scale_size, "/root/xxm/SageAttention/q_scale.bin");
+        //fread_tensor<float>(k_scale_ref, k_scale_size, "/root/xxm/SageAttention/k_scale.bin");
+        //fread_tensor<float>(v_scale_ref, v_scale_size, "/root/xxm/SageAttention/v_scale.bin");
+
+        fread_tensor<float>(q_scale_ref, q_scale_size, "/root/xxm/gemm/q_scale.bin");
+        fread_tensor<float>(k_scale_ref, k_scale_size, "/root/xxm/gemm/k_scale.bin");
+        fread_tensor<float>(v_scale_ref, v_scale_size, "/root/xxm/gemm/v_scale.bin");
 
         // for(int i = 0; i < q_scale_size; i++) {
         //     printf("q_scale[%d]: %f\n", i, q_scale_ref[i]);
@@ -237,6 +282,34 @@ int main() {
         // printf("stride_h_o: %d\n", stride_h_o);
         // printf("sm_scale: %f\n", sm_scale);
 
+      
+        for (int i = 0; i < warm_up; i++) {
+            kernel_func<<<grid, block, smem_max>>>(
+              q, 
+              k,
+              v,
+              o,
+              nullptr,
+              q_scale,
+              k_scale,
+              v_scale,
+              nullptr,
+              seq_len,
+              seq_len,
+              num_kv_groups,
+              stride_bz_q, stride_seq_q, stride_h_q,
+              stride_bz_k, stride_seq_k, stride_h_k,
+              stride_bz_v, stride_h_v, stride_d_v,
+              stride_bz_o, stride_seq_o, stride_h_o,
+              sm_scale);
+
+            cudaError_t err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                printf("CUDA Kernel launch failed: %s\n", cudaGetErrorString(err));
+            }
+
+        }
+        cudaDeviceSynchronize();
       
       
 
